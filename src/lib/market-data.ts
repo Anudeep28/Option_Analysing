@@ -73,17 +73,72 @@ export interface OptionChainEntry {
   putIV: number;
 }
 
-// Placeholder for future live data fetch
-export async function fetchNSEQuote(_symbol: string): Promise<LiveQuote | null> {
-  // TODO: Implement NSE API integration
-  // const response = await fetch(`/api/market-data/nse/quote?symbol=${symbol}`);
-  // return response.json();
-  return null;
+// --- Live data client functions ---
+
+export interface YahooQuote {
+  symbol: string;
+  lastPrice: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  previousClose: number;
+  dayHigh: number;
+  dayLow: number;
+  fiftyTwoWeekHigh: number;
+  fiftyTwoWeekLow: number;
+  name: string;
+  timestamp: string;
 }
 
-export async function fetchNSEOptionChain(_symbol: string): Promise<OptionChainEntry[] | null> {
-  // TODO: Implement NSE option chain API
-  // const response = await fetch(`/api/market-data/nse/option-chain?symbol=${symbol}`);
-  // return response.json();
-  return null;
+export interface YahooHistorical {
+  dates: string[];
+  closes: number[];
+  annualizedVolatility: number;
+  dividendYield: number;
+}
+
+export interface NSEOptionChainResponse {
+  symbol: string;
+  underlyingValue: number;
+  expiryDates: string[];
+  data: OptionChainEntry[];
+  timestamp: string;
+}
+
+export async function fetchYahooQuote(symbol: string): Promise<YahooQuote> {
+  const res = await fetch(`/api/market-data/yahoo?symbol=${encodeURIComponent(symbol)}&type=quote`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchYahooHistorical(symbol: string): Promise<YahooHistorical> {
+  const res = await fetch(`/api/market-data/yahoo?symbol=${encodeURIComponent(symbol)}&type=historical`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchNSEOptionChain(symbol: string): Promise<NSEOptionChainResponse> {
+  const res = await fetch(`/api/market-data/nse?symbol=${encodeURIComponent(symbol)}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchLiveData(symbol: string): Promise<{
+  quote: YahooQuote;
+  historical: YahooHistorical;
+}> {
+  const [quote, historical] = await Promise.all([
+    fetchYahooQuote(symbol),
+    fetchYahooHistorical(symbol),
+  ]);
+  return { quote, historical };
 }

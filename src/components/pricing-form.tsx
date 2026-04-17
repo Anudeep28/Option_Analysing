@@ -14,7 +14,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   TrendingUp, TrendingDown, Activity, BarChart3, Settings2,
-  Play, Loader2, Info, Globe, IndianRupee,
+  Play, Loader2, Info, Globe, IndianRupee, Wifi,
 } from "lucide-react";
 import type {
   OptionStyle, OptionType, PricingMethod, PricingInput,
@@ -25,7 +25,11 @@ function sliderVal(v: number | readonly number[]): number {
   return Array.isArray(v) ? v[0] : (v as number);
 }
 import { getAvailableMethods, priceOption } from "@/lib/pricing";
-import { ALL_PRESETS, INDIAN_MARKET_PRESETS, GLOBAL_PRESETS } from "@/lib/market-data";
+import {
+  ALL_PRESETS, INDIAN_MARKET_PRESETS, GLOBAL_PRESETS,
+  fetchLiveData, fetchNSEOptionChain,
+  type YahooQuote, type YahooHistorical, type NSEOptionChainResponse,
+} from "@/lib/market-data";
 import { ResultsPanel } from "./results-panel";
 
 const OPTION_STYLES: { value: OptionStyle; label: string; description: string }[] = [
@@ -69,6 +73,16 @@ export function PricingForm() {
   const [asianAvgType, setAsianAvgType] = useState<AsianAverageType>("arithmetic");
   const [observationFreq, setObservationFreq] = useState(12);
 
+  // Selected symbol for live data
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+
+  // Live data state
+  const [liveQuote, setLiveQuote] = useState<YahooQuote | null>(null);
+  const [liveHistorical, setLiveHistorical] = useState<YahooHistorical | null>(null);
+  const [optionChain, setOptionChain] = useState<NSEOptionChainResponse | null>(null);
+  const [isFetchingLive, setIsFetchingLive] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+
   // Results
   const [result, setResult] = useState<PricingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +103,7 @@ export function PricingForm() {
   const handlePresetSelect = useCallback((symbol: string) => {
     const preset = ALL_PRESETS.find((p) => p.symbol === symbol);
     if (!preset) return;
+    setSelectedSymbol(symbol);
     setSpotPrice(preset.spotPrice);
     setStrikePrice(Math.round(preset.spotPrice));
     setVolatility(preset.volatility * 100);
@@ -97,6 +112,44 @@ export function PricingForm() {
       setBarrierLevel(Math.round(preset.spotPrice * 1.2));
     }
   }, [optionStyle]);
+
+  const handleFetchLive = useCallback(async () => {
+    if (!selectedSymbol) return;
+    setIsFetchingLive(true);
+    setLiveError(null);
+    setOptionChain(null);
+
+    try {
+      const { quote, historical } = await fetchLiveData(selectedSymbol);
+      setLiveQuote(quote);
+      setLiveHistorical(historical);
+
+      // Auto-fill form with live data
+      setSpotPrice(parseFloat(quote.lastPrice.toFixed(2)));
+      setStrikePrice(Math.round(quote.lastPrice));
+      if (historical.annualizedVolatility > 0) {
+        setVolatility(parseFloat((historical.annualizedVolatility * 100).toFixed(1)));
+      }
+      if (historical.dividendYield > 0) {
+        setDividendYield(parseFloat((historical.dividendYield * 100).toFixed(2)));
+      }
+      if (optionStyle === "barrier") {
+        setBarrierLevel(Math.round(quote.lastPrice * 1.2));
+      }
+
+      // Try fetching NSE option chain (may fail for non-Indian/non-optionable symbols)
+      try {
+        const chain = await fetchNSEOptionChain(selectedSymbol);
+        setOptionChain(chain);
+      } catch {
+        // NSE option chain is optional — don't treat as error
+      }
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : "Failed to fetch live data");
+    } finally {
+      setIsFetchingLive(false);
+    }
+  }, [selectedSymbol, optionStyle]);
 
   const runPricing = useCallback(() => {
     setIsRunning(true);
@@ -282,6 +335,119 @@ export function PricingForm() {
                   </div>
                 </TabsContent>
               </Tabs>
+
+              {/* Fetch Live Data Button */}
+              {selectedSymbol && (
+                <div className="mt-3 space-y-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFetchLive}
+                    disabled={isFetchingLive}
+                    className="w-full"
+                  >
+                    {isFetchingLive ? (
+                      <><Loader2 className="size-3 mr-2 animate-spin" /> Fetching live data for {selectedSymbol}...</>
+                    ) : (
+                      <><Wifi className="size-3 mr-2" /> Fetch Live Data for {selectedSymbol}</>
+                    )}
+                  </Button>
+
+                  {liveError && (
+                    <p className="text-xs text-red-500">{liveError}</p>
+                  )}
+
+                  {liveQuote && (
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{liveQuote.name}</span>
+                        <Badge variant={liveQuote.change >= 0 ? "default" : "destructive"} className="text-xs">
+                          {liveQuote.change >= 0 ? "+" : ""}{liveQuote.change.toFixed(2)} ({liveQuote.changePercent.toFixed(2)}%)
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <span className="text-muted-foreground">LTP</span>
+                          <p className="font-mono font-semibold">{liveQuote.lastPrice.toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Prev Close</span>
+                          <p className="font-mono">{liveQuote.previousClose.toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Volume</span>
+                          <p className="font-mono">{liveQuote.volume.toLocaleString()}</p>
+                        </div>
+                      </div>
+                      {liveHistorical && (
+                        <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t">
+                          <div>
+                            <span className="text-muted-foreground">1Y Historical Vol</span>
+                            <p className="font-mono font-semibold">{(liveHistorical.annualizedVolatility * 100).toFixed(1)}%</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Dividend Yield</span>
+                            <p className="font-mono font-semibold">{(liveHistorical.dividendYield * 100).toFixed(2)}%</p>
+                          </div>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-muted-foreground">
+                        Source: Yahoo Finance &bull; {new Date(liveQuote.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+
+                  {optionChain && optionChain.data.length > 0 && (
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">NSE Option Chain</span>
+                        <span className="text-xs text-muted-foreground">
+                          Underlying: {optionChain.underlyingValue.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Expiries: {optionChain.expiryDates.slice(0, 3).join(", ")}
+                        {optionChain.expiryDates.length > 3 && ` +${optionChain.expiryDates.length - 3} more`}
+                      </div>
+                      <div className="max-h-40 overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b text-muted-foreground">
+                              <th className="text-left py-1">Call IV</th>
+                              <th className="text-left py-1">Call LTP</th>
+                              <th className="text-center py-1 font-bold">Strike</th>
+                              <th className="text-right py-1">Put LTP</th>
+                              <th className="text-right py-1">Put IV</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {optionChain.data
+                              .filter((d) => d.expiryDate === optionChain.expiryDates[0])
+                              .filter((d) => Math.abs(d.strikePrice - optionChain.underlyingValue) < optionChain.underlyingValue * 0.1)
+                              .slice(0, 15)
+                              .map((d, i) => (
+                                <tr
+                                  key={i}
+                                  className="border-b border-border/50 hover:bg-muted/50 cursor-pointer"
+                                  onClick={() => { setStrikePrice(d.strikePrice); if (d.callIV > 0) setVolatility(d.callIV); }}
+                                >
+                                  <td className="py-0.5 font-mono">{d.callIV > 0 ? d.callIV.toFixed(1) + "%" : "-"}</td>
+                                  <td className="py-0.5 font-mono">{d.callLTP > 0 ? d.callLTP.toFixed(2) : "-"}</td>
+                                  <td className="py-0.5 font-mono text-center font-bold">{d.strikePrice}</td>
+                                  <td className="py-0.5 font-mono text-right">{d.putLTP > 0 ? d.putLTP.toFixed(2) : "-"}</td>
+                                  <td className="py-0.5 font-mono text-right">{d.putIV > 0 ? d.putIV.toFixed(1) + "%" : "-"}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Click a row to use that strike &amp; IV &bull; Source: NSE India
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <Separator />
