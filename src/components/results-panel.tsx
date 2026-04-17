@@ -11,6 +11,7 @@ import type { PricingResult, OptionType, OptionStyle } from "@/lib/types";
 import { SimulationChart } from "./simulation-chart";
 import { PayoffChart } from "./payoff-chart";
 import { GreeksDisplay } from "./greeks-display";
+import { TradeAnalysis } from "./trade-analysis";
 
 interface ResultsPanelProps {
   result: PricingResult | null;
@@ -18,6 +19,10 @@ interface ResultsPanelProps {
   optionStyle: OptionStyle;
   spotPrice: number;
   strikePrice: number;
+  volatility: number;
+  timeToExpiry: number;
+  riskFreeRate: number;
+  sentimentScore?: number;
 }
 
 function fmt(n: number, decimals = 4): string {
@@ -25,7 +30,7 @@ function fmt(n: number, decimals = 4): string {
   return n.toFixed(decimals);
 }
 
-export function ResultsPanel({ result, optionType, optionStyle, spotPrice, strikePrice }: ResultsPanelProps) {
+export function ResultsPanel({ result, optionType, optionStyle, spotPrice, strikePrice, volatility, timeToExpiry, riskFreeRate, sentimentScore }: ResultsPanelProps) {
   if (!result) {
     return (
       <Card className="h-full min-h-[400px] flex items-center justify-center">
@@ -122,6 +127,19 @@ export function ResultsPanel({ result, optionType, optionStyle, spotPrice, strik
 
       {/* Greeks */}
       <GreeksDisplay greeks={result.greeks} />
+
+      {/* Trade Analysis & Greek Interpretation */}
+      <TradeAnalysis
+        result={result}
+        optionType={optionType}
+        optionStyle={optionStyle}
+        spotPrice={spotPrice}
+        strikePrice={strikePrice}
+        volatility={volatility}
+        timeToExpiry={timeToExpiry}
+        riskFreeRate={riskFreeRate}
+        sentimentScore={sentimentScore}
+      />
 
       {/* Charts */}
       <Card>

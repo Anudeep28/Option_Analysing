@@ -142,3 +142,32 @@ export async function fetchLiveData(symbol: string): Promise<{
   ]);
   return { quote, historical };
 }
+
+// --- News Sentiment ---
+
+export interface NewsSentimentArticle {
+  title: string;
+  link: string;
+  pubDate: string;
+  source: string;
+  sentiment: number;
+}
+
+export interface NewsSentimentResult {
+  symbol: string;
+  articles: NewsSentimentArticle[];
+  overallSentiment: number;
+  sentimentLabel: string;
+  articleCount: number;
+  suggestedVolatilityAdjustment: number;
+  timestamp: string;
+}
+
+export async function fetchNewsSentiment(symbol: string): Promise<NewsSentimentResult> {
+  const res = await fetch(`/api/market-data/news?symbol=${encodeURIComponent(symbol)}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

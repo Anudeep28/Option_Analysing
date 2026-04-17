@@ -14,7 +14,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   TrendingUp, TrendingDown, Activity, BarChart3, Settings2,
-  Play, Loader2, Info, Globe, IndianRupee, Wifi,
+  Play, Loader2, Info, Globe, IndianRupee, Wifi, Search, Newspaper,
 } from "lucide-react";
 import type {
   OptionStyle, OptionType, PricingMethod, PricingInput,
@@ -27,8 +27,8 @@ function sliderVal(v: number | readonly number[]): number {
 import { getAvailableMethods, priceOption } from "@/lib/pricing";
 import {
   ALL_PRESETS, INDIAN_MARKET_PRESETS, GLOBAL_PRESETS,
-  fetchLiveData, fetchNSEOptionChain,
-  type YahooQuote, type YahooHistorical, type NSEOptionChainResponse,
+  fetchLiveData, fetchNSEOptionChain, fetchNewsSentiment,
+  type YahooQuote, type YahooHistorical, type NSEOptionChainResponse, type NewsSentimentResult,
 } from "@/lib/market-data";
 import { ResultsPanel } from "./results-panel";
 
@@ -75,6 +75,7 @@ export function PricingForm() {
 
   // Selected symbol for live data
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [customSymbol, setCustomSymbol] = useState("");
 
   // Live data state
   const [liveQuote, setLiveQuote] = useState<YahooQuote | null>(null);
@@ -82,6 +83,12 @@ export function PricingForm() {
   const [optionChain, setOptionChain] = useState<NSEOptionChainResponse | null>(null);
   const [isFetchingLive, setIsFetchingLive] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
+
+  // News sentiment
+  const [sentimentScore, setSentimentScore] = useState<number | undefined>(undefined);
+  const [sentimentData, setSentimentData] = useState<NewsSentimentResult | null>(null);
+  const [isFetchingSentiment, setIsFetchingSentiment] = useState(false);
+  const [sentimentError, setSentimentError] = useState<string | null>(null);
 
   // Results
   const [result, setResult] = useState<PricingResult | null>(null);
@@ -150,6 +157,28 @@ export function PricingForm() {
       setIsFetchingLive(false);
     }
   }, [selectedSymbol, optionStyle]);
+
+  const handleFetchSentiment = useCallback(async () => {
+    if (!selectedSymbol) return;
+    setIsFetchingSentiment(true);
+    setSentimentError(null);
+
+    try {
+      const data = await fetchNewsSentiment(selectedSymbol);
+      setSentimentData(data);
+      setSentimentScore(data.overallSentiment);
+
+      // Apply suggested volatility adjustment
+      if (data.suggestedVolatilityAdjustment !== 1) {
+        const adjusted = volatility * data.suggestedVolatilityAdjustment;
+        setVolatility(parseFloat(adjusted.toFixed(1)));
+      }
+    } catch (e) {
+      setSentimentError(e instanceof Error ? e.message : "Failed to fetch sentiment");
+    } finally {
+      setIsFetchingSentiment(false);
+    }
+  }, [selectedSymbol, volatility]);
 
   const runPricing = useCallback(() => {
     setIsRunning(true);
@@ -336,6 +365,30 @@ export function PricingForm() {
                 </TabsContent>
               </Tabs>
 
+              {/* Custom Symbol Input */}
+              <div className="flex gap-2 mt-3">
+                <Input
+                  placeholder="Enter any symbol (e.g. TATAMOTORS, MSFT)"
+                  value={customSymbol}
+                  onChange={(e) => setCustomSymbol(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && customSymbol.trim()) {
+                      setSelectedSymbol(customSymbol.trim());
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!customSymbol.trim()}
+                  onClick={() => {
+                    if (customSymbol.trim()) setSelectedSymbol(customSymbol.trim());
+                  }}
+                >
+                  <Search className="size-3 mr-1" /> Go
+                </Button>
+              </div>
+
               {/* Fetch Live Data Button */}
               {selectedSymbol && (
                 <div className="mt-3 space-y-3">
@@ -449,6 +502,76 @@ export function PricingForm() {
                 </div>
               )}
             </div>
+
+            {/* News Sentiment */}
+            {selectedSymbol && (
+              <div className="space-y-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleFetchSentiment}
+                  disabled={isFetchingSentiment}
+                  className="w-full"
+                >
+                  {isFetchingSentiment ? (
+                    <><Loader2 className="size-3 mr-2 animate-spin" /> Analyzing news for {selectedSymbol}...</>
+                  ) : (
+                    <><Newspaper className="size-3 mr-2" /> Fetch News Sentiment for {selectedSymbol}</>
+                  )}
+                </Button>
+
+                {sentimentError && (
+                  <p className="text-xs text-red-500">{sentimentError}</p>
+                )}
+
+                {sentimentData && (
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">News Sentiment</span>
+                      <Badge
+                        variant={sentimentData.overallSentiment > 0.1 ? "default" : sentimentData.overallSentiment < -0.1 ? "destructive" : "secondary"}
+                      >
+                        {sentimentData.sentimentLabel} ({(sentimentData.overallSentiment * 100).toFixed(0)}%)
+                      </Badge>
+                    </div>
+
+                    {sentimentData.suggestedVolatilityAdjustment !== 1 && (
+                      <div className="text-xs rounded bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-2">
+                        <span className="font-semibold text-amber-700 dark:text-amber-300">
+                          Volatility adjusted {sentimentData.suggestedVolatilityAdjustment > 1 ? "+" : ""}
+                          {((sentimentData.suggestedVolatilityAdjustment - 1) * 100).toFixed(1)}%
+                        </span>
+                        <span className="text-amber-600 dark:text-amber-400"> based on news sentiment</span>
+                      </div>
+                    )}
+
+                    <div className="max-h-36 overflow-y-auto space-y-1.5">
+                      {sentimentData.articles.slice(0, 10).map((a, i) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          <span className={`mt-0.5 shrink-0 ${a.sentiment > 0.1 ? "text-emerald-500" : a.sentiment < -0.1 ? "text-red-500" : "text-muted-foreground"}`}>
+                            {a.sentiment > 0.1 ? "▲" : a.sentiment < -0.1 ? "▼" : "●"}
+                          </span>
+                          <div className="min-w-0">
+                            <a
+                              href={a.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-foreground hover:underline line-clamp-1"
+                            >
+                              {a.title}
+                            </a>
+                            <span className="text-muted-foreground text-[10px]"> — {a.source}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {sentimentData.articleCount} articles analyzed &bull; Source: Google News &bull; {new Date(sentimentData.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <Separator />
 
@@ -674,6 +797,10 @@ export function PricingForm() {
           optionStyle={optionStyle}
           spotPrice={spotPrice}
           strikePrice={strikePrice}
+          volatility={volatility / 100}
+          timeToExpiry={timeToExpiry / 365}
+          riskFreeRate={riskFreeRate / 100}
+          sentimentScore={sentimentScore}
         />
       </div>
     </div>
