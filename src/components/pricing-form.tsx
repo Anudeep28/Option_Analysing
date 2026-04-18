@@ -90,6 +90,9 @@ export function PricingForm() {
   const [isFetchingSentiment, setIsFetchingSentiment] = useState(false);
   const [sentimentError, setSentimentError] = useState<string | null>(null);
 
+  // Market LTP (price from demat account)
+  const [marketLTP, setMarketLTP] = useState<number | undefined>(undefined);
+
   // Results
   const [result, setResult] = useState<PricingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -482,7 +485,16 @@ export function PricingForm() {
                                 <tr
                                   key={i}
                                   className="border-b border-border/50 hover:bg-muted/50 cursor-pointer"
-                                  onClick={() => { setStrikePrice(d.strikePrice); if (d.callIV > 0) setVolatility(d.callIV); }}
+                                  onClick={() => {
+                                    setStrikePrice(d.strikePrice);
+                                    if (optionType === "call") {
+                                      if (d.callIV > 0) setVolatility(d.callIV);
+                                      if (d.callLTP > 0) setMarketLTP(d.callLTP);
+                                    } else {
+                                      if (d.putIV > 0) setVolatility(d.putIV);
+                                      if (d.putLTP > 0) setMarketLTP(d.putLTP);
+                                    }
+                                  }}
                                 >
                                   <td className="py-0.5 font-mono">{d.callIV > 0 ? d.callIV.toFixed(1) + "%" : "-"}</td>
                                   <td className="py-0.5 font-mono">{d.callLTP > 0 ? d.callLTP.toFixed(2) : "-"}</td>
@@ -526,14 +538,23 @@ export function PricingForm() {
 
                 {sentimentData && (
                   <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">News Sentiment</span>
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <span className="text-sm font-medium flex items-center gap-1.5">
+                        News Sentiment
+                        {sentimentData.aiPowered && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">AI</Badge>
+                        )}
+                      </span>
                       <Badge
                         variant={sentimentData.overallSentiment > 0.1 ? "default" : sentimentData.overallSentiment < -0.1 ? "destructive" : "secondary"}
                       >
                         {sentimentData.sentimentLabel} ({(sentimentData.overallSentiment * 100).toFixed(0)}%)
                       </Badge>
                     </div>
+
+                    {sentimentData.aiSummary && (
+                      <p className="text-xs text-muted-foreground italic leading-relaxed">{sentimentData.aiSummary}</p>
+                    )}
 
                     {sentimentData.suggestedVolatilityAdjustment !== 1 && (
                       <div className="text-xs rounded bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-2">
@@ -800,7 +821,12 @@ export function PricingForm() {
           volatility={volatility / 100}
           timeToExpiry={timeToExpiry / 365}
           riskFreeRate={riskFreeRate / 100}
+          dividendYield={dividendYield / 100}
           sentimentScore={sentimentScore}
+          marketLTP={marketLTP}
+          onMarketLTPChange={setMarketLTP}
+          symbol={selectedSymbol ?? undefined}
+          sentimentData={sentimentData}
         />
       </div>
     </div>

@@ -8,10 +8,14 @@ import {
   DollarSign, Timer, TrendingUp, TrendingDown, BarChart3, Zap,
 } from "lucide-react";
 import type { PricingResult, OptionType, OptionStyle } from "@/lib/types";
+import type { NewsSentimentResult } from "@/lib/market-data";
+import { normalCDF } from "@/lib/math";
 import { SimulationChart } from "./simulation-chart";
 import { PayoffChart } from "./payoff-chart";
 import { GreeksDisplay } from "./greeks-display";
 import { TradeAnalysis } from "./trade-analysis";
+import { ProfitProbability } from "./profit-probability";
+import { AIReport } from "./ai-report";
 
 interface ResultsPanelProps {
   result: PricingResult | null;
@@ -22,7 +26,12 @@ interface ResultsPanelProps {
   volatility: number;
   timeToExpiry: number;
   riskFreeRate: number;
+  dividendYield: number;
   sentimentScore?: number;
+  marketLTP?: number;
+  onMarketLTPChange?: (v: number | undefined) => void;
+  symbol?: string;
+  sentimentData?: NewsSentimentResult | null;
 }
 
 function fmt(n: number, decimals = 4): string {
@@ -30,7 +39,23 @@ function fmt(n: number, decimals = 4): string {
   return n.toFixed(decimals);
 }
 
-export function ResultsPanel({ result, optionType, optionStyle, spotPrice, strikePrice, volatility, timeToExpiry, riskFreeRate, sentimentScore }: ResultsPanelProps) {
+function computeBreakEvenPoP(
+  optionType: OptionType,
+  spot: number, strike: number, vol: number, t: number, r: number, q: number,
+  premium: number,
+): number {
+  if (vol <= 0 || t <= 0 || spot <= 0 || strike <= 0) return 0;
+  const breakEven = optionType === "call" ? strike + premium : strike - premium;
+  if (breakEven <= 0) return 0;
+  const sqrtT = Math.sqrt(t);
+  const d2Be = (Math.log(spot / breakEven) + (r - q - 0.5 * vol * vol) * t) / (vol * sqrtT);
+  return optionType === "call" ? normalCDF(d2Be) * 100 : normalCDF(-d2Be) * 100;
+}
+
+export function ResultsPanel({
+  result, optionType, optionStyle, spotPrice, strikePrice, volatility, timeToExpiry,
+  riskFreeRate, dividendYield, sentimentScore, marketLTP, onMarketLTPChange, symbol, sentimentData,
+}: ResultsPanelProps) {
   if (!result) {
     return (
       <Card className="h-full min-h-[400px] flex items-center justify-center">
@@ -139,6 +164,50 @@ export function ResultsPanel({ result, optionType, optionStyle, spotPrice, strik
         timeToExpiry={timeToExpiry}
         riskFreeRate={riskFreeRate}
         sentimentScore={sentimentScore}
+      />
+
+      {/* Probability of Profit */}
+      <ProfitProbability
+        optionType={optionType}
+        spotPrice={spotPrice}
+        strikePrice={strikePrice}
+        volatility={volatility}
+        timeToExpiry={timeToExpiry}
+        riskFreeRate={riskFreeRate}
+        dividendYield={dividendYield}
+        theoreticalPrice={result.price}
+        marketLTP={marketLTP}
+        onMarketLTPChange={onMarketLTPChange}
+      />
+
+      {/* AI Investment Report */}
+      <AIReport
+        reportInput={{
+          symbol,
+          optionType,
+          optionStyle,
+          spotPrice,
+          strikePrice,
+          volatilityPct: volatility * 100,
+          timeToExpiryDays: Math.round(timeToExpiry * 365),
+          riskFreeRatePct: riskFreeRate * 100,
+          theoreticalPrice: result.price,
+          marketLTP,
+          greeks: result.greeks,
+          probabilityOfProfitPct: computeBreakEvenPoP(
+            optionType, spotPrice, strikePrice, volatility, timeToExpiry,
+            riskFreeRate, dividendYield, marketLTP ?? result.price,
+          ),
+          breakEven: optionType === "call"
+            ? strikePrice + (marketLTP ?? result.price)
+            : strikePrice - (marketLTP ?? result.price),
+          moveNeededPct: ((optionType === "call"
+            ? strikePrice + (marketLTP ?? result.price)
+            : strikePrice - (marketLTP ?? result.price)) - spotPrice) / spotPrice * 100,
+          sentimentScore: sentimentData?.overallSentiment,
+          sentimentLabel: sentimentData?.sentimentLabel,
+          newsHeadlines: sentimentData?.articles.slice(0, 8).map((a) => a.title),
+        }}
       />
 
       {/* Charts */}

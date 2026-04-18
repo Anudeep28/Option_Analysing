@@ -160,6 +160,8 @@ export interface NewsSentimentResult {
   sentimentLabel: string;
   articleCount: number;
   suggestedVolatilityAdjustment: number;
+  aiPowered: boolean;
+  aiSummary?: string;
   timestamp: string;
 }
 

@@ -1,5 +1,65 @@
 import { NextRequest } from "next/server";
 
+// --- DeepSeek AI sentiment scoring ---
+
+interface DeepSeekSentimentResult {
+  articles: { index: number; score: number }[];
+  overall: number;
+  label: string;
+  summary: string;
+}
+
+async function scoreWithDeepSeek(
+  symbol: string,
+  headlines: string[],
+  apiKey: string,
+): Promise<DeepSeekSentimentResult | null> {
+  const prompt = `You are a financial news sentiment analyzer for Indian stock markets.
+Analyze the following news headlines about ${symbol} and return ONLY a valid JSON object.
+
+Headlines:
+${headlines.map((h, i) => `${i + 1}. ${h}`).join("\n")}
+
+Return this exact JSON structure (no other text):
+{
+  "articles": [{"index": 0, "score": 0.0}, ...],
+  "overall": 0.0,
+  "label": "Bullish|Mildly Bullish|Neutral|Mildly Bearish|Bearish",
+  "summary": "1-2 sentence summary of the news environment for this stock"
+}
+
+Rules:
+- score range: -1.0 (very bearish) to +1.0 (very bullish), 0 = neutral
+- index is 0-based matching the headline list
+- overall is a weighted average across all articles
+- label must be one of: Bullish, Mildly Bullish, Neutral, Mildly Bearish, Bearish`;
+
+  try {
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 512,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+    return JSON.parse(content) as DeepSeekSentimentResult;
+  } catch {
+    return null;
+  }
+}
+
 // Google News RSS — free, no API key needed
 // We parse the RSS XML, extract headlines, and run keyword-based sentiment analysis
 
@@ -48,6 +108,8 @@ interface SentimentResult {
   sentimentLabel: string;
   articleCount: number;
   suggestedVolatilityAdjustment: number; // multiplier, e.g. 1.1 means +10%
+  aiPowered: boolean;
+  aiSummary?: string;
   timestamp: string;
 }
 
@@ -155,33 +217,49 @@ export async function GET(request: NextRequest) {
     const xml = await res.text();
     const rssItems = parseRSSItems(xml);
 
-    const articles: NewsArticle[] = rssItems.slice(0, 20).map((item) => {
+    const rawArticles = rssItems.slice(0, 20).map((item) => {
       const source = extractSource(item.title);
       const cleanTitle = item.title.replace(/ - [^-]+$/, "").trim();
-      return {
-        title: cleanTitle,
-        link: item.link,
-        pubDate: item.pubDate,
-        source,
-        sentiment: analyzeSentiment(cleanTitle),
-      };
+      return { title: cleanTitle, link: item.link, pubDate: item.pubDate, source };
     });
 
-    // Weighted average: recent articles matter more
-    let totalWeight = 0;
-    let weightedSum = 0;
-    articles.forEach((a, i) => {
-      const weight = 1 / (1 + i * 0.15); // decay by position (recent first)
-      weightedSum += a.sentiment * weight;
-      totalWeight += weight;
-    });
+    const headlines = rawArticles.map((a) => a.title);
 
-    const overallSentiment = totalWeight > 0 ? weightedSum / totalWeight : 0;
-    const sentimentLabel = overallSentiment > 0.2 ? "Bullish"
-      : overallSentiment > 0.05 ? "Mildly Bullish"
-      : overallSentiment < -0.2 ? "Bearish"
-      : overallSentiment < -0.05 ? "Mildly Bearish"
-      : "Neutral";
+    // Try DeepSeek AI scoring first, fall back to keyword scoring
+    const deepseekKey = process.env.DEEPSEEK_API_KEY;
+    const aiResult = deepseekKey ? await scoreWithDeepSeek(symbol, headlines, deepseekKey) : null;
+
+    const articles: NewsArticle[] = rawArticles.map((a, i) => ({
+      ...a,
+      sentiment: aiResult
+        ? (aiResult.articles.find((x) => x.index === i)?.score ?? analyzeSentiment(a.title))
+        : analyzeSentiment(a.title),
+    }));
+
+    let overallSentiment: number;
+    let sentimentLabel: string;
+    let aiSummary: string | undefined;
+
+    if (aiResult) {
+      overallSentiment = Math.max(-1, Math.min(1, aiResult.overall));
+      sentimentLabel = aiResult.label;
+      aiSummary = aiResult.summary;
+    } else {
+      // Weighted average: recent articles matter more
+      let totalWeight = 0;
+      let weightedSum = 0;
+      articles.forEach((a, i) => {
+        const weight = 1 / (1 + i * 0.15);
+        weightedSum += a.sentiment * weight;
+        totalWeight += weight;
+      });
+      overallSentiment = totalWeight > 0 ? weightedSum / totalWeight : 0;
+      sentimentLabel = overallSentiment > 0.2 ? "Bullish"
+        : overallSentiment > 0.05 ? "Mildly Bullish"
+        : overallSentiment < -0.2 ? "Bearish"
+        : overallSentiment < -0.05 ? "Mildly Bearish"
+        : "Neutral";
+    }
 
     const result: SentimentResult = {
       symbol: symbol.toUpperCase(),
@@ -190,6 +268,8 @@ export async function GET(request: NextRequest) {
       sentimentLabel,
       articleCount: articles.length,
       suggestedVolatilityAdjustment: computeVolatilityAdjustment(overallSentiment, articles.length),
+      aiPowered: !!aiResult,
+      aiSummary,
       timestamp: new Date().toISOString(),
     };
 
