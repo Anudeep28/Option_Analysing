@@ -173,3 +173,74 @@ export async function fetchNewsSentiment(symbol: string): Promise<NewsSentimentR
   }
   return res.json();
 }
+
+// --- Currency & Lot Size ---
+
+const INDIAN_SYMBOLS = new Set(INDIAN_MARKET_PRESETS.map((p) => p.symbol));
+
+export function isIndianSymbol(symbol: string | null): boolean {
+  if (!symbol) return true; // default to India
+  return INDIAN_SYMBOLS.has(symbol.toUpperCase());
+}
+
+export function getCurrencySymbol(symbol: string | null): string {
+  return isIndianSymbol(symbol) ? "₹" : "$";
+}
+
+// NSE F&O lot sizes (as of 2024-25, these change periodically)
+export const NSE_LOT_SIZES: Record<string, number> = {
+  NIFTY: 25,
+  BANKNIFTY: 15,
+  NIFTYIT: 25,
+  FINNIFTY: 25,
+  MIDCPNIFTY: 50,
+  RELIANCE: 250,
+  TCS: 150,
+  HDFCBANK: 550,
+  INFY: 300,
+  ICICIBANK: 700,
+  BHARTIARTL: 475,
+  SBIN: 750,
+  TATAMOTORS: 1400,
+  ITC: 1600,
+  LT: 150,
+  AXISBANK: 625,
+  KOTAKBANK: 400,
+  MARUTI: 100,
+  HINDUNILVR: 300,
+  BAJFINANCE: 125,
+  WIPRO: 1500,
+  HCLTECH: 350,
+  SUNPHARMA: 350,
+  ADANIENT: 250,
+  ONGC: 3850,
+  TATASTEEL: 5500,
+  POWERGRID: 2700,
+  NTPC: 2800,
+  COALINDIA: 2100,
+  JSWSTEEL: 900,
+};
+
+export function getLotSize(symbol: string | null): number {
+  if (!symbol) return 1;
+  return NSE_LOT_SIZES[symbol.toUpperCase()] ?? 1;
+}
+
+// --- Trade Duration Presets ---
+
+export interface TradeDuration {
+  label: string;
+  days: number;
+  description: string;
+}
+
+export const TRADE_DURATIONS: TradeDuration[] = [
+  { label: "Intraday", days: 0, description: "Same day (0 DTE)" },
+  { label: "Next Day", days: 1, description: "Overnight" },
+  { label: "Weekly", days: 7, description: "1 week" },
+  { label: "Bi-weekly", days: 14, description: "2 weeks" },
+  { label: "Monthly", days: 30, description: "~1 month" },
+  { label: "Quarterly", days: 90, description: "~3 months" },
+  { label: "Half-yearly", days: 180, description: "~6 months" },
+  { label: "Yearly", days: 365, description: "1 year" },
+];

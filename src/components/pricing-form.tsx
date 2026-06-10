@@ -14,7 +14,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   TrendingUp, TrendingDown, Activity, BarChart3, Settings2,
-  Play, Loader2, Info, Globe, IndianRupee, Wifi, Search, Newspaper,
+  Play, Loader2, Info, Globe, IndianRupee, Wifi, Search, Newspaper, Clock,
 } from "lucide-react";
 import type {
   OptionStyle, OptionType, PricingMethod, PricingInput,
@@ -28,9 +28,13 @@ import { getAvailableMethods, priceOption } from "@/lib/pricing";
 import {
   ALL_PRESETS, INDIAN_MARKET_PRESETS, GLOBAL_PRESETS,
   fetchLiveData, fetchNSEOptionChain, fetchNewsSentiment,
+  getCurrencySymbol, getLotSize, isIndianSymbol, TRADE_DURATIONS,
   type YahooQuote, type YahooHistorical, type NSEOptionChainResponse, type NewsSentimentResult,
 } from "@/lib/market-data";
 import { ResultsPanel } from "./results-panel";
+import { TradeDecision } from "./trade-decision";
+import { StockForecast } from "./stock-forecast";
+import { computeTechnicals } from "@/lib/technicals";
 
 const OPTION_STYLES: { value: OptionStyle; label: string; description: string }[] = [
   { value: "european", label: "European", description: "Exercise at expiry only" },
@@ -93,6 +97,21 @@ export function PricingForm() {
   // Market LTP (price from demat account)
   const [marketLTP, setMarketLTP] = useState<number | undefined>(undefined);
 
+  // India VIX
+  const [vixLevel, setVixLevel] = useState<number | undefined>(undefined);
+
+  // Position tracking
+  const [lotSize, setLotSize] = useState(1);
+  const [selectedDuration, setSelectedDuration] = useState<string>("");
+
+  // Derived currency
+  const currency = getCurrencySymbol(selectedSymbol);
+
+  // Derived technical score from historical closes (-100..100)
+  const technicalScore = liveHistorical?.closes && liveHistorical.closes.length >= 50
+    ? (computeTechnicals(liveHistorical.closes)?.overallScore ?? 0)
+    : 0;
+
   // Results
   const [result, setResult] = useState<PricingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +137,13 @@ export function PricingForm() {
     setStrikePrice(Math.round(preset.spotPrice));
     setVolatility(preset.volatility * 100);
     setDividendYield(preset.dividendYield * 100);
+    setLotSize(getLotSize(symbol));
+    // Set appropriate risk-free rate
+    if (isIndianSymbol(symbol)) {
+      setRiskFreeRate(6.5); // RBI repo rate proxy
+    } else {
+      setRiskFreeRate(5.25); // US Fed funds proxy
+    }
     if (optionStyle === "barrier") {
       setBarrierLevel(Math.round(preset.spotPrice * 1.2));
     }
@@ -153,6 +179,17 @@ export function PricingForm() {
         setOptionChain(chain);
       } catch {
         // NSE option chain is optional — don't treat as error
+      }
+
+      // Try fetching India VIX
+      try {
+        const vixRes = await fetch("/api/market-data/vix");
+        if (vixRes.ok) {
+          const vixData = await vixRes.json();
+          if (vixData.vixLevel) setVixLevel(vixData.vixLevel);
+        }
+      } catch {
+        // VIX is optional
       }
     } catch (e) {
       setLiveError(e instanceof Error ? e.message : "Failed to fetch live data");
@@ -228,6 +265,40 @@ export function PricingForm() {
   ]);
 
   return (
+    <div className="space-y-6">
+      {/* Primary Decision Tools — what most users want first */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <TradeDecision
+          spotPrice={spotPrice}
+          volatility={volatility / 100}
+          riskFreeRate={riskFreeRate / 100}
+          dividendYield={dividendYield / 100}
+          currency={currency}
+          defaultStrike={strikePrice}
+          defaultLotSize={lotSize}
+          symbol={selectedSymbol ?? undefined}
+          isLiveData={!!liveQuote}
+          sentimentScore={sentimentScore}
+          technicalScore={technicalScore}
+          sentimentActive={!!sentimentData}
+          technicalsActive={!!(liveHistorical?.closes && liveHistorical.closes.length >= 50)}
+          optionChainData={optionChain?.data}
+        />
+        <StockForecast
+          spotPrice={spotPrice}
+          volatility={volatility / 100}
+          riskFreeRate={riskFreeRate / 100}
+          dividendYield={dividendYield / 100}
+          days={timeToExpiry}
+          currency={currency}
+          symbol={selectedSymbol ?? undefined}
+          sentimentScore={sentimentScore}
+          technicalScore={technicalScore}
+          sentimentActive={!!sentimentData}
+          technicalsActive={!!(liveHistorical?.closes && liveHistorical.closes.length >= 50)}
+        />
+      </div>
+
     <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-6">
       {/* Left: Configuration Panel */}
       <div className="space-y-6">
@@ -599,14 +670,16 @@ export function PricingForm() {
             {/* Core Inputs */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="spot" className="text-sm">Spot Price (S)</Label>
+                <Label htmlFor="spot" className="text-sm">Spot Price (S) <span className="text-muted-foreground">{currency}</span></Label>
                 <Input id="spot" type="number" min={0.01} step="any" value={spotPrice}
                   onChange={(e) => setSpotPrice(parseFloat(e.target.value) || 0)} />
+                <p className="text-[10px] text-muted-foreground">Underlying asset price</p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="strike" className="text-sm">Strike Price (K)</Label>
+                <Label htmlFor="strike" className="text-sm">Strike Price (K) <span className="text-muted-foreground">{currency}</span></Label>
                 <Input id="strike" type="number" min={0.01} step="any" value={strikePrice}
                   onChange={(e) => setStrikePrice(parseFloat(e.target.value) || 0)} />
+                <p className="text-[10px] text-muted-foreground">Option contract strike</p>
               </div>
             </div>
 
@@ -649,6 +722,33 @@ export function PricingForm() {
               />
             </div>
 
+            {/* Trade Duration Presets */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium flex items-center gap-1">
+                <Clock className="size-3" /> Trade Duration
+              </Label>
+              <div className="flex flex-wrap gap-1.5">
+                {TRADE_DURATIONS.map((d) => (
+                  <button
+                    key={d.label}
+                    onClick={() => {
+                      // Intraday = 0 DTE, use 0.5 days for pricing (half a trading day)
+                      setTimeToExpiry(d.days === 0 ? 1 : d.days);
+                      setSelectedDuration(d.label);
+                    }}
+                    className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                      selectedDuration === d.label
+                        ? "bg-foreground/10 border-foreground/40 font-semibold"
+                        : "border-border hover:border-foreground/30"
+                    }`}
+                    title={d.description}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Time to Expiry */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -657,7 +757,7 @@ export function PricingForm() {
               </div>
               <Slider
                 value={[timeToExpiry]}
-                onValueChange={(v) => setTimeToExpiry(sliderVal(v))}
+                onValueChange={(v) => { setTimeToExpiry(sliderVal(v)); setSelectedDuration(""); }}
                 min={1} max={1825} step={1}
               />
             </div>
@@ -827,8 +927,16 @@ export function PricingForm() {
           onMarketLTPChange={setMarketLTP}
           symbol={selectedSymbol ?? undefined}
           sentimentData={sentimentData}
+          historicalVol={liveHistorical?.annualizedVolatility}
+          historicalCloses={liveHistorical?.closes}
+          optionChainData={optionChain?.data}
+          liveQuote={liveQuote}
+          vixLevel={vixLevel}
+          currency={currency}
+          lotSize={lotSize}
         />
       </div>
+    </div>
     </div>
   );
 }

@@ -16,6 +16,12 @@ import { GreeksDisplay } from "./greeks-display";
 import { TradeAnalysis } from "./trade-analysis";
 import { ProfitProbability } from "./profit-probability";
 import { AIReport } from "./ai-report";
+import { IVAnalysisPanel } from "./iv-analysis";
+import { OIAnalysisPanel } from "./oi-analysis";
+import { TechnicalAnalysisPanel } from "./technical-analysis";
+import { BehavioralSignalsPanel } from "./behavioral-signals";
+import { StrategyBuilder } from "./strategy-builder";
+import { PositionTracker } from "./position-tracker";
 
 interface ResultsPanelProps {
   result: PricingResult | null;
@@ -32,6 +38,14 @@ interface ResultsPanelProps {
   onMarketLTPChange?: (v: number | undefined) => void;
   symbol?: string;
   sentimentData?: NewsSentimentResult | null;
+  // New analytics props
+  historicalVol?: number;
+  historicalCloses?: number[];
+  optionChainData?: { strikePrice: number; callOI: number; putOI: number; callLTP: number; putLTP: number; callIV: number; putIV: number }[];
+  liveQuote?: { volume: number; fiftyTwoWeekHigh: number; fiftyTwoWeekLow: number } | null;
+  vixLevel?: number;
+  currency?: string;
+  lotSize?: number;
 }
 
 function fmt(n: number, decimals = 4): string {
@@ -55,6 +69,8 @@ function computeBreakEvenPoP(
 export function ResultsPanel({
   result, optionType, optionStyle, spotPrice, strikePrice, volatility, timeToExpiry,
   riskFreeRate, dividendYield, sentimentScore, marketLTP, onMarketLTPChange, symbol, sentimentData,
+  historicalVol, historicalCloses, optionChainData, liveQuote, vixLevel,
+  currency = "₹", lotSize = 1,
 }: ResultsPanelProps) {
   if (!result) {
     return (
@@ -103,19 +119,19 @@ export function ResultsPanel({
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center">
               <div className="text-3xl font-bold font-mono tracking-tight">
-                {fmt(result.price, 4)}
+                {currency}{fmt(result.price, 4)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">Option Premium</p>
             </div>
             <div className="text-center">
               <div className="text-xl font-semibold font-mono">
-                {fmt(result.intrinsicValue, 4)}
+                {currency}{fmt(result.intrinsicValue, 4)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">Intrinsic Value</p>
             </div>
             <div className="text-center">
               <div className="text-xl font-semibold font-mono">
-                {fmt(result.timeValue, 4)}
+                {currency}{fmt(result.timeValue, 4)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">Time Value</p>
             </div>
@@ -149,6 +165,18 @@ export function ResultsPanel({
           </div>
         </CardContent>
       </Card>
+
+      {/* Demat Position Tracker */}
+      <PositionTracker
+        theoreticalPrice={result.price}
+        optionType={optionType}
+        spotPrice={spotPrice}
+        strikePrice={strikePrice}
+        currency={currency}
+        lotSize={lotSize}
+        marketLTP={marketLTP}
+        symbol={symbol}
+      />
 
       {/* Greeks */}
       <GreeksDisplay greeks={result.greeks} />
@@ -208,6 +236,51 @@ export function ResultsPanel({
           sentimentLabel: sentimentData?.sentimentLabel,
           newsHeadlines: sentimentData?.articles.slice(0, 8).map((a) => a.title),
         }}
+      />
+
+      {/* IV Analysis */}
+      {volatility > 0 && historicalVol !== undefined && historicalVol > 0 && (
+        <IVAnalysisPanel
+          currentIV={volatility}
+          historicalVol={historicalVol}
+        />
+      )}
+
+      {/* Option Chain Intelligence */}
+      {optionChainData && optionChainData.length > 0 && (
+        <OIAnalysisPanel
+          optionChainData={optionChainData}
+          spotPrice={spotPrice}
+        />
+      )}
+
+      {/* Technical Analysis */}
+      {historicalCloses && historicalCloses.length >= 50 && (
+        <TechnicalAnalysisPanel
+          closes={historicalCloses}
+          symbol={symbol}
+        />
+      )}
+
+      {/* Behavioral Signals */}
+      {liveQuote && historicalCloses && historicalCloses.length > 0 && (
+        <BehavioralSignalsPanel
+          currentPrice={spotPrice}
+          high52w={liveQuote.fiftyTwoWeekHigh}
+          low52w={liveQuote.fiftyTwoWeekLow}
+          currentVolume={liveQuote.volume}
+          avgVolume={liveQuote.volume * 0.8}
+          rsi={50}
+          ivRank={volatility > 0 && historicalVol ? Math.min(100, Math.max(0, ((volatility - historicalVol * 0.7) / (historicalVol * 0.6)) * 100)) : 50}
+          pcr={1}
+          vixLevel={vixLevel}
+        />
+      )}
+
+      {/* Strategy Builder */}
+      <StrategyBuilder
+        spotPrice={spotPrice}
+        optionChainData={optionChainData}
       />
 
       {/* Charts */}
