@@ -5,7 +5,7 @@
 2. [Starting the App](#starting-the-app)
 3. [Tab 1: Option Pricer — Step-by-Step](#tab-1-option-pricer)
 4. [Tab 2: My Portfolio — Step-by-Step](#tab-2-my-portfolio)
-5. [Understanding the Results](#understanding-the-results)
+5. [Results Panels Reference](#results-panels-reference)
 6. [Practical Workflow: NSE Options](#practical-workflow-nse-options)
 7. [Glossary](#glossary)
 
@@ -18,6 +18,7 @@ This application is a **professional-grade option analysis tool** for Indian (NS
 - **Pricing models**: Black-Scholes, Binomial Tree, Monte Carlo (with Longstaff-Schwartz for American options, Heston stochastic vol)
 - **Historical data**: 1 year of daily closes from Yahoo Finance, auto-fitted with GARCH(1,1) for accurate current volatility
 - **Greeks**: First-order (Δ, Γ, Θ, ν, ρ) and higher-order (Vanna, Volga, Charm, Speed) — the same set used by investment banks
+- **Stock Outlook** *(new)*: Consolidated directional signal (STRONG BUY → STRONG SELL), GARCH-based probabilistic price cone, and price target probability — all combined into one panel
 - **Portfolio analysis**: Enter multiple positions from your demat account and see combined exposure, net Greeks, and scenario P&L
 - **Trade decision engine**: Probability of profit, expected value, risk-reward verdict
 
@@ -131,21 +132,78 @@ The engine computes:
 
 ---
 
-## Results Panels — What Each One Shows
+## Results Panels Reference
 
-After clicking "Price Option", scroll down through these panels in order:
+After clicking "Price Option", the following panels appear on the right in this order. Live data must be fetched first for the Stock Outlook panel to appear.
 
-### Option Price Card
-- **Option Premium**: The theoretical fair value computed by your chosen model
-- **Intrinsic Value**: Payoff if exercised right now (max(S-K,0) for call)
-- **Time Value**: Premium above intrinsic — what you're paying for optionality
-- **95% Confidence Interval**: (Monte Carlo only) range of fair values
+---
+
+### 1. Option Price Card
+- **Option Premium**: Theoretical fair value from your chosen model
+- **Intrinsic Value**: Payoff if exercised right now (max(S−K, 0) for call)
+- **Time Value**: Premium above intrinsic — what you pay for optionality
+- **95% Confidence Interval**: (Monte Carlo only) range of fair values across simulations
 - **Execution Time**: How long pricing took in milliseconds
 
-### Demat Position Tracker
-Enter your actual entry price to see live P&L.
+---
 
-### Greeks
+### 2. Stock Outlook *(new — appears when live data is loaded)*
+
+This is the stock movement prediction panel. It has three sections:
+
+#### A. Consolidated Directional Signal
+Combines 5–6 data sources into a single **STRONG BUY / BUY / NEUTRAL / SELL / STRONG SELL** verdict.
+
+| Input | Weight | What It Measures |
+|---|---|---|
+| Trend (SMA 50/200) | 35% | Is the stock above or below its moving averages? |
+| MACD | 20% | Is momentum bullish or bearish? |
+| RSI-14 | 15% | Is the stock overbought (>70) or oversold (<30)? |
+| News Sentiment | 15% | Are recent headlines positive or negative? |
+| Bollinger Bands | 10% | Is the stock near the upper or lower band? |
+| Vol Regime | 5% | Is GARCH vol elevated vs historical? |
+
+- **Score**: -100 (max bearish) to +100 (max bullish)
+- **Confidence %**: How strongly the individual signals agree with each other
+- **Key Risk**: A warning relevant to the current market environment (e.g. high VIX, elevated GARCH vol)
+
+> **How to use**: Score > +20 → tilt toward calls or bull spreads. Score < -20 → tilt toward puts or bear spreads. Score near 0 → direction unclear, consider neutral/volatility strategies (straddles, strangles).
+
+#### B. Price Range Forecast (GARCH Price Cone)
+A fan chart showing where the stock price is likely to be over the next N days, based on GARCH-fitted volatility.
+
+- **Blue centre line**: Expected (drift-adjusted) path
+- **Inner band**: 68% confidence interval — stock stays within this range ~2 out of 3 times
+- **Outer band**: 95% confidence interval — stock stays within this range ~19 out of 20 times
+- **Horizon**: Switch between 7, 14, 21, 30, 45, or 60 days from the dropdown
+- The drift is slightly biased by the technical score (bullish setup → expected path tilts upward)
+
+> **How to use**: Check if your target strike sits inside or outside the 95% band. If your strike is well outside, the probability of it being ITM at expiry is low.
+
+#### C. Price Target Probability
+Enter any target price to get two probability estimates:
+
+| Metric | Meaning |
+|---|---|
+| **P(touches target by day N)** | First-passage probability — chance of the stock hitting your target at any point before the horizon, not just at expiry. More useful for option traders. |
+| **P(above target at expiry)** | Terminal log-normal probability — where the stock closes relative to your target on the last day. |
+| **P(below target at expiry)** | Complementary probability. |
+
+The drift is biased by the technical score so a strong bullish setup increases upside probabilities.
+
+> **Practical example**: You're considering NIFTY 25500 CE when NIFTY is at 25000, 21 days to expiry. Enter 25500 as target. If P(touches 25500 within 21 days) = 38%, that means there's a 38% chance NIFTY touches 25500 at some point — this is your rough probability of the call going deep ITM before expiry.
+
+---
+
+### 3. Demat Position Tracker
+Enter your actual entry price to see live P&L:
+- Current P&L (per unit and total in ₹)
+- Breakeven spot price at expiry
+- P&L at ±2%, ±5% spot moves
+
+---
+
+### 4. Greeks
 | Greek | Meaning | Practical Use |
 |---|---|---|
 | **Δ Delta** | ₹ change in option per ₹1 spot move | A 0.5 delta call gains ₹0.50 if NIFTY rises ₹1 |
@@ -158,55 +216,78 @@ Enter your actual entry price to see live P&L.
 | **Charm** | How delta drifts each day | How often you need to re-hedge |
 | **Speed** | How gamma changes with spot | Third-order sensitivity |
 
-### Trade Analysis
-Interprets your Greeks in plain English. Tells you:
+---
+
+### 5. Trade Analysis
+Plain-English interpretation of your Greeks:
 - Is IV high or low relative to historical?
 - Is theta decay dangerous for your holding period?
 - Is this ITM/ATM/OTM and what does that mean for your trade?
 
-### Profit Probability
-- Probability of profit at expiry (based on log-normal distribution)
-- Enter the **Market LTP** (current market price from your broker) to get the breakeven-adjusted probability
-- Payoff diagram at various spot levels
+---
 
-### AI Report
-Click **"Generate AI Report"** for a full written analysis of the option including sentiment, technicals, pricing verdict, and risk warnings. Requires an OpenAI API key in `.env.local`.
+### 6. Profit Probability
+- Probability of profit at expiry (log-normal distribution)
+- Enter the **Market LTP** (from your broker) to get breakeven-adjusted probability
+- Payoff diagram showing P&L at various spot prices at expiry
 
-### IV Analysis
-Compares your option's implied volatility (IV) vs the 1-year historical realised volatility:
-- **IV > HV**: Option is expensive (sellers favoured)
-- **IV < HV**: Option is cheap (buyers favoured)
-- Shows IV percentile and rank
+---
 
-### Option Chain Intelligence
-If NSE option chain data loads (Indian symbols only):
-- Open Interest by strike — where big money is positioned
-- Put-Call Ratio
-- Max Pain level (strike where most option buyers lose)
-- Likely support/resistance from OI concentration
+### 7. AI Report
+Click **"Generate AI Report"** for a written analysis combining sentiment, technicals, pricing verdict, and risk warnings.
+> Requires an OpenAI API key set in `.env.local` as `OPENAI_API_KEY=sk-...`
 
-### Technical Analysis
+---
+
+### 8. IV Analysis
+Compares this option's implied volatility vs the 1-year historical realised volatility:
+- **IV > HV**: Option is expensive — sellers favoured
+- **IV < HV**: Option may be cheap — buyers favoured
+- IV Rank (0–100%) and IV Percentile
+
+---
+
+### 9. Option Chain Intelligence *(Indian symbols only)*
+- Open Interest by strike — where large positions are concentrated
+- Put-Call Ratio (PCR)
+- Max Pain level (strike where total option buyer losses are maximised)
+- Support/resistance inferred from OI distribution
+
+---
+
+### 10. Technical Analysis
 Computed from 1 year of daily historical closes:
-- RSI-14: below 30 = oversold, above 70 = overbought
-- MACD: bullish/bearish momentum signal
+- RSI-14: oversold (<30) / neutral / overbought (>70)
+- MACD: bullish or bearish momentum
 - Bollinger Bands: mean-reversion signal
-- SMA-50/200: trend direction (uptrend/downtrend/sideways)
-- Support and resistance levels from pivot analysis
+- SMA-50 / SMA-200: trend direction
+- Key support and resistance levels from pivot analysis
 
-### GARCH(1,1) Volatility Forecast
-- **Current GARCH Vol**: Best estimate of today's realised volatility (used for pricing)
-- **Long-Run Vol**: Where vol will revert to over time
-- **Persistence (α+β)**: How long volatility shocks last. >0.95 = very persistent (high vol regime)
-- **Shock Half-Life**: Days until a vol spike decays to half
+---
+
+### 11. Behavioral Signals
+- 52-week position (near high vs low)
+- Volume surge detection
+- Fear & Greed composite score
+- VIX interpretation (India VIX for NSE symbols)
+
+---
+
+### 12. GARCH(1,1) Volatility Forecast
+- **Current GARCH Vol**: Best estimate of today's realised volatility (used in pricing and Stock Outlook)
+- **Long-Run Vol**: Mean-reversion target for volatility
+- **Persistence (α+β)**: >0.95 = shocks last a long time (high-vol regime)
+- **Shock Half-Life**: Days until a vol spike fades to half
 - **30-day forecast chart**: Whether vol is expected to rise, fall, or stay flat
-- **Interpretation**: Whether current vol is elevated or compressed vs long-run, and what that means for option buyers vs sellers
 
-### Scenario P&L Ladder
-A matrix showing your option's P&L at combinations of:
-- Spot moves: -10% to +10%
-- IV changes: -20% to +20%
+---
 
-Green cells = profit, red cells = loss. Use this to understand your option's exposure to both direction and volatility simultaneously.
+### 13. Scenario P&L Ladder
+A heatmap matrix of your option's P&L at:
+- Spot moves: −10% to +10% (columns)
+- IV changes: −20% to +20% (rows)
+
+Green = profit, Red = loss. Use this to stress-test your option against adverse moves in both spot and volatility simultaneously.
 
 ---
 
@@ -267,34 +348,272 @@ Detailed breakdown of aggregated Greeks with:
 
 ## Practical Workflow: NSE Options
 
-### Before entering a trade
+### Step 1 — Get the Market View (Stock Outlook)
 
-1. Open **Option Pricer**, select NIFTY (or your symbol)
-2. Click **Fetch Live Data** — σ auto-fills with GARCH vol
-3. Set strike = the strike you're considering, days = expiry, type = CE or PE
-4. Click **Price Option**
-5. Check the GARCH forecast panel — is vol elevated or compressed?
-   - Elevated vol (GARCH > long-run) → favour selling options
-   - Compressed vol → favour buying options
-6. Check the **Scenario P&L Ladder** — what happens to your option if both spot and IV move against you?
-7. Enter your target and stop in **Trade Decision** — check the verdict
+1. Open **Option Pricer**, select your symbol (e.g. NIFTY)
+2. Click **Fetch Live Data** — spot and GARCH vol auto-fill
+3. Click **Price Option** (use any strike for now — you just need the Stock Outlook panel to load)
+4. Scroll to **Stock Outlook** and read:
+   - **Directional Signal**: Is the consolidated verdict BUY, SELL, or NEUTRAL?
+   - **Price Cone**: Set the horizon to your planned holding period (e.g. 21 days). Does your target strike fall inside the 68% band or outside the 95% band?
+   - **Target Probability**: Enter your target strike as the target price. What is P(touches target within N days)?
 
-### After entering a trade
+> **Decision rule**:
+> - Signal strongly bullish + target within 68% band + P(touch) > 40% → consider buying a call
+> - Signal strongly bearish + target within 68% band + P(touch) > 40% → consider buying a put
+> - Signal neutral → favour selling premium (straddle, strangle, iron condor)
+> - P(touch) < 20% → target is unrealistic for the holding period
 
-1. Open **My Portfolio**, click **Add Leg**
-2. Enter your actual entry premium (from your broker confirmation)
-3. Set current spot, days to expiry, IV
-4. Check **Net Theta** — if you're long options, you lose this per day
-5. Check **Spot Scenarios** — where is your break-even?
-6. Revisit daily to track current P&L and updated Greeks
+---
 
-### Finding IV for the Portfolio tab
+### Step 2 — Evaluate the Specific Option
 
-The portfolio tab needs IV as an input. To find it:
-1. In **Option Pricer**, go to the main pricer
-2. Set the same strike, expiry, spot
-3. Enter the **current market LTP** (from your broker) into the "Market LTP" field in the Demat Position Tracker
-4. The IV Analysis panel will show you the implied volatility — use that number in Portfolio
+5. Set your chosen strike, expiry days, and Call/Put
+6. Click **Price Option** again
+7. Check **GARCH Volatility Forecast**:
+   - Current GARCH vol elevated vs long-run → options are expensive, prefer selling
+   - Current GARCH vol compressed vs long-run → options are cheap, prefer buying
+8. Check **IV Analysis** — is the option richly or cheaply priced relative to historical vol?
+9. Check **Scenario P&L Ladder** — stress test: what happens if spot drops 5% and IV spikes 20%?
+10. Enter your target exit and stop loss in **Trade Decision** — verify the verdict (GO / FAVORABLE / etc.)
+
+---
+
+### Step 3 — Track After Entry
+
+11. Open **My Portfolio** tab, click **Add Leg**
+12. Enter your actual entry premium (from your broker confirmation slip)
+13. Set current spot, days remaining, IV
+14. Check:
+    - **Net Theta**: You're losing this amount per day if long
+    - **Spot Scenarios**: Where do you break even? Where do you make the most?
+    - **Portfolio Greeks**: Are you directionally exposed? Do you need a hedge?
+15. Revisit daily to update spot price and days remaining — P&L and Greeks update automatically
+
+---
+
+### Finding IV for the Portfolio Tab
+
+The portfolio tab requires IV as an input (not provided by broker directly):
+1. In **Option Pricer**, enter the same strike, expiry, and spot
+2. In **Demat Position Tracker**, enter your broker's current LTP
+3. The **IV Analysis** panel shows the implied volatility — copy that number into the Portfolio tab's IV field
+
+---
+
+### Quick Reference: Signal → Strategy
+
+| Stock Outlook Signal | Vol Regime | Suggested Strategy |
+|---|---|---|
+| Strong BUY | Compressed vol | Buy Call (plain or spread) |
+| Strong BUY | Elevated vol | Bull Call Spread (limit premium paid) |
+| Strong SELL | Compressed vol | Buy Put |
+| Strong SELL | Elevated vol | Bear Put Spread |
+| NEUTRAL | Elevated vol | Sell Strangle / Iron Condor (collect premium) |
+| NEUTRAL | Compressed vol | Buy Straddle (long vol, wait for breakout) |
+
+---
+
+## How to Actually Make a Decision — Deep Dive
+
+This section walks through **how to read the numbers** and **what to do with them**. It uses realistic NIFTY examples throughout.
+
+---
+
+### Reading the Stock Outlook Signal
+
+The signal score runs from -100 to +100. Here is what each range means in practice:
+
+| Score Range | Signal | What It Means | What to Do |
+|---|---|---|---|
+| +50 to +100 | STRONG BUY | Most signals align bullishly — trend up, MACD positive, RSI not overbought, positive news | Buy calls or bull spreads. Avoid selling calls naked. |
+| +20 to +49 | BUY | More bullish than bearish but not all signals agree | Lean bullish. Use spreads to reduce risk if vol is elevated. |
+| -19 to +19 | NEUTRAL | Signals are mixed or cancelling out | Do not take strong directional bets. Consider straddles, iron condors, or wait for clarity. |
+| -20 to -49 | SELL | More bearish than bullish | Lean bearish. Buy puts or bear spreads. |
+| -50 to -100 | STRONG SELL | Most signals align bearishly | Buy puts or bear spreads. Avoid buying calls. |
+
+**Confidence %** tells you how much the signals agree:
+- **Confidence > 70%**: Signals strongly agree. Higher conviction to act.
+- **Confidence 50–70%**: Moderate agreement. Reduce position size.
+- **Confidence < 50%**: Signals are split. Treat the signal as weak — wait or use smaller size.
+
+> **Example**: Score = +65, Confidence = 80% → Strong BUY with high conviction. NIFTY is above both 50 and 200 DMA, MACD positive, RSI neutral, positive news. This is a good setup for buying calls.
+
+> **Example**: Score = +30, Confidence = 45% → BUY but low confidence. Maybe trend is up but RSI is overbought and news is negative. Do not buy aggressively — use a bull call spread with a defined max loss.
+
+---
+
+### Reading the Price Cone
+
+The price cone answers: **"Where is the stock realistically going in the next N days?"**
+
+**How to use it for strike selection:**
+
+1. Set the horizon = your planned holding period (e.g. 21 days for a monthly expiry)
+2. Look at the **68% band endpoint** — this is the "likely" range the stock will trade in
+3. Look at the **95% band endpoint** — this is the "possible but unlikely" range
+
+**Strike selection rules:**
+- An ITM or ATM strike will almost always be within the 95% band — reasonable to trade
+- A strike at the edge of the 95% band is a lottery ticket (low premium, low probability)
+- A strike well outside the 95% band has almost zero probability — avoid as a buyer
+
+> **Example**: NIFTY at 25000, GARCH vol = 14%, 21 days to expiry.
+> - 68% band: 24200 to 25800
+> - 95% band: 23500 to 26600
+> - **25500 CE**: Inside 68% band → reasonable ATM/OTM call with decent probability
+> - **26000 CE**: Between 68% and 95% band → low probability, only buy if very bullish
+> - **27000 CE**: Outside 95% band → avoid as a buyer (premium is mostly time value, very low delta)
+
+---
+
+### Reading the Target Probability
+
+Two numbers are shown. They mean different things:
+
+**P(touches target by day N)** — *First-passage probability*
+- This is the probability the stock **reaches your target at any point** during the holding period
+- More useful for option traders because your option gains value the moment the stock moves toward the strike, not just at expiry
+- Think of it as: "If I set a limit order to exit at this target, how often would it get hit?"
+
+**P(above target at expiry)** — *Terminal probability*
+- This is the probability the stock **closes above your target specifically on expiry day**
+- More conservative — a stock can touch 25500 during the month and still close below it at expiry
+
+> **Example**: NIFTY at 25000, target = 25500, 21 days.
+> - P(touches 25500 within 21 days) = 38%
+> - P(above 25500 at expiry) = 24%
+> - **Interpretation**: There's a 38% chance NIFTY reaches 25500 at some point — roughly one in three months. If you're buying the 25500 CE, expect to profit on about 38% of similar setups (before accounting for theta decay).
+
+**What probability threshold to use:**
+- > 50%: High probability trade — size up
+- 35–50%: Moderate probability — standard size
+- 20–35%: Low probability — small size, treat as a speculative bet
+- < 20%: Very low — avoid as a buyer; consider selling this strike instead
+
+---
+
+### Reading the Greeks — What They Mean for Your Position
+
+**Delta (Δ)** — Your directional exposure
+- Delta 0.5 = option behaves like holding 0.5 shares of the stock
+- NIFTY lot = 25 units, so a delta 0.5 call = exposure to 12.5 NIFTY units = ₹3,12,500 at NIFTY 25000
+- If Delta = 0.3 and you hold 2 lots: total delta = 0.3 × 25 × 2 = 15 NIFTY units
+- **You gain ₹15 per ₹1 rise in NIFTY**
+
+**Theta (Θ)** — Your daily cost of holding
+- Theta = -5 means you lose ₹5 per day per unit from time decay
+- 2 lots × 25 units × ₹5 = **₹250 lost per day** just from time passing
+- Over 21 days = ₹5,250 lost to theta even if NIFTY doesn't move
+- Always check: "Can my expected profit overcome the theta bleed?"
+
+**Vega (ν)** — Your volatility exposure
+- Vega = 8 means the option gains ₹8 per 1% rise in IV
+- If IV rises from 14% to 16% (+2%), you gain ₹16 per unit
+- 2 lots × 25 × ₹16 = **₹800 gain from the vol spike**
+- Long options (bought) have positive vega — you profit when IV rises
+- Short options (sold) have negative vega — you profit when IV falls
+
+**Gamma (Γ)** — How much delta changes
+- High gamma near expiry means delta changes rapidly as spot moves
+- Good for buyers (delta accelerates in your favour) but dangerous for sellers
+
+---
+
+### Reading the Scenario P&L Ladder
+
+The ladder is a stress test. Read it like this:
+
+- **Rows** = IV changes (-20% to +20%)
+- **Columns** = Spot moves (-10% to +10%)
+- **Each cell** = Your net P&L if both happen simultaneously
+
+**What to look for:**
+1. Find the cell at your expected spot move and roughly zero IV change — is it green (profit)?
+2. Find the worst-case cell (spot moves against you AND IV drops) — can you survive that loss?
+3. If most of the top half is red (IV rising hurts you), you are short vega — you sold options
+4. If the left column (spot falls) is deeply red, you have positive delta (long calls or short puts)
+
+> **Example for a bought NIFTY 25000 CE:**
+> The ladder will show:
+> - Top-right cell (spot +10%, IV +20%) → dark green (best case — spot and vol both move in your favour)
+> - Bottom-left cell (spot -10%, IV -20%) → dark red (worst case — spot falls and IV collapses)
+> - Middle row (IV unchanged), right columns (spot +5% to +10%) → green (normal profitable scenario)
+> - **Rule**: If even the "spot flat, IV -10%" cell is manageable (small red), your theta risk is under control
+
+---
+
+### Reading the GARCH Volatility Forecast
+
+| Reading | Meaning | Action |
+|---|---|---|
+| Current GARCH vol **much higher** than long-run vol | Vol is in an elevated regime, likely to mean-revert down | Sell premium — IV will likely fall, making options cheaper. Straddle sellers benefit. |
+| Current GARCH vol **much lower** than long-run vol | Vol is compressed, likely to spike up | Buy premium — IV will likely rise, making options more valuable. Straddle buyers benefit. |
+| Persistence (α+β) > 0.95 | Vol shocks last a long time | Do not expect vol to revert quickly. High-vol regime may persist for weeks. |
+| Half-life > 30 days | Same as above | Factor this into multi-week strategies. |
+| 30-day forecast chart trending **up** | Vol expected to rise | Avoid short-premium strategies. |
+| 30-day forecast chart trending **down** | Vol expected to fall | Short-premium strategies (sell straddles, iron condors) become more attractive. |
+
+---
+
+### Full Worked Example: Should I Buy NIFTY 25500 CE?
+
+**Scenario**: NIFTY is at 25000. The monthly expiry is 21 days away. You're considering buying the 25500 CE (OTM call).
+
+**Step 1 — Check Stock Outlook**
+- Signal Score: +55 (BUY), Confidence: 72%
+- NIFTY is above SMA-50 and SMA-200, MACD positive, RSI at 58 (not overbought), news neutral
+- ✅ Directional bias is bullish
+
+**Step 2 — Check Price Cone (21-day horizon)**
+- 68% band: 24100–25950
+- 95% band: 23300–26800
+- 25500 is inside the 68% band → reachable in a normal month
+- ✅ Strike is within realistic range
+
+**Step 3 — Check Target Probability**
+- P(touches 25500 within 21 days) = 42%
+- P(above 25500 at expiry) = 29%
+- ✅ 42% first-passage probability is moderate — reasonable for a directional trade
+
+**Step 4 — Price the Option**
+- Click Price Option with 25500 CE, 21 days, GARCH vol = 14%
+- Theoretical premium = ₹85, Market LTP = ₹90
+- IV Analysis: IV = 15.2%, HV = 14%, IV Rank = 45% (normal range)
+- ✅ Option is slightly expensive (IV > HV) but not extreme
+
+**Step 5 — Check Greeks**
+- Delta = 0.38 (you gain ₹0.38 per ₹1 rise in NIFTY)
+- Theta = -3.2 (you lose ₹3.20/day per unit → 1 lot × 25 = ₹80/day)
+- Vega = 7.1 (you gain ₹7.10 per 1% IV rise)
+- Over 21 days theta = ₹80 × 21 = **₹1,680 bleed** for 1 lot
+- NIFTY needs to move up ~₹300 (1.2%) just to cover theta
+- ✅ Manageable but must move meaningfully
+
+**Step 6 — Check Scenario P&L Ladder**
+- Spot +3%, IV unchanged → profit ₹620 per lot ✅
+- Spot flat, IV -5% → loss ₹200 per lot (theta + vol drag)
+- Spot -3%, IV -10% → loss ₹1,800 per lot (worst case within 1 week)
+- ✅ Maximum realistic loss is bounded and acceptable for 1 lot
+
+**Step 7 — Enter Trade Decision**
+- Target premium: ₹150, Stop: ₹45, Holding: 15 days
+- P(hitting ₹150 first) = 31%, P(hitting ₹45 first) = 28%
+- Expected value: positive
+- Verdict: **FAVORABLE**
+
+**Conclusion**: The trade has a positive setup — bullish signal, strike within range, 42% touch probability, manageable theta, and a FAVORABLE verdict. Buy 1–2 lots of NIFTY 25500 CE at ₹88–90 with a stop at ₹45.
+
+---
+
+### Common Mistakes to Avoid
+
+- **Buying OTM options outside the 95% price cone**: The math says these almost never pay off. The premium is cheap for a reason.
+- **Ignoring theta bleed**: If theta × holding days > 30% of premium paid, time decay is a serious headwind. Either use spreads or hold for fewer days.
+- **Trading a NEUTRAL signal directionally**: A score near 0 means no edge. You are gambling on direction, not trading.
+- **Buying options when GARCH vol is elevated**: You are paying a high price for vol that is likely to mean-revert down — a double headwind (spot needs to move AND vol needs to not fall).
+- **Ignoring confidence %**: A BUY signal at 45% confidence is weak. Reduce size.
+- **Not entering in Portfolio tab after trading**: If you don't track theta bleed and P&L in real time, you will hold losing positions too long.
 
 ---
 
@@ -323,3 +642,12 @@ The portfolio tab needs IV as an input. To find it:
 | **Vanna** | How your delta hedge changes as volatility moves |
 | **Volga** | How your vega exposure changes as volatility moves (vol-of-vol exposure) |
 | **SVI** | Stochastic Volatility Inspired — a parametric model for fitting the volatility smile |
+| **GBM** | Geometric Brownian Motion — the mathematical model underlying Black-Scholes; assumes log-normal price distribution |
+| **Price Cone** | A probabilistic fan chart showing where the stock price is likely to be over a future horizon, based on GARCH volatility |
+| **First-Passage Probability** | The probability that the stock price touches a target level at any point before the horizon (not just at expiry) — more relevant than terminal probability for option traders |
+| **Confidence Interval (68%/95%)** | Statistical range: the stock stays within the 68% band ~2 out of 3 times, and within the 95% band ~19 out of 20 times |
+| **Stock Outlook** | The app's directional prediction panel — combines technicals, MACD, RSI, Bollinger, news sentiment, and vol regime into a single BUY/SELL/NEUTRAL signal |
+| **Technical Score** | A composite score (-100 to +100) derived from all technical indicators; used to bias drift in the price cone and target probability calculations |
+| **Straddle** | Buying both a call and a put at the same strike — profits if the stock moves sharply in either direction |
+| **Strangle** | Buying an OTM call and OTM put — cheaper than a straddle, profits from large moves |
+| **Iron Condor** | Selling an OTM strangle and buying a further OTM strangle for protection — profits if the stock stays within a range (neutral strategy) |
