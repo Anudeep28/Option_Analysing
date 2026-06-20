@@ -34,6 +34,7 @@ export function priceOption(input: PricingInput): PricingResult {
       simulation,
       barrier: optionStyle === "barrier" ? barrier : undefined,
       asian: optionStyle === "asian" ? asian : undefined,
+      garchVol: simulation.garchVol,
     });
   }
 

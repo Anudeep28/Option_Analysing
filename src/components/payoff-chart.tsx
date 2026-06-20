@@ -38,7 +38,7 @@ export function PayoffChart({ optionType, strikePrice, premium, spotPrice }: Pay
 
   return (
     <div className="w-full h-[350px]">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
         <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
           <XAxis

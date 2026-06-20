@@ -1,5 +1,9 @@
+"use client";
+
 import { PricingForm } from "@/components/pricing-form";
-import { Activity } from "lucide-react";
+import { PortfolioManager } from "@/components/portfolio-manager";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Activity, Calculator, BookOpen } from "lucide-react";
 
 export default function Home() {
   return (
@@ -27,7 +31,26 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <PricingForm />
+        <Tabs defaultValue="pricer" className="space-y-5">
+          <TabsList className="grid w-full max-w-sm grid-cols-2">
+            <TabsTrigger value="pricer" className="gap-1.5">
+              <Calculator className="size-3.5" />
+              Option Pricer
+            </TabsTrigger>
+            <TabsTrigger value="portfolio" className="gap-1.5">
+              <BookOpen className="size-3.5" />
+              My Portfolio
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="pricer">
+            <PricingForm />
+          </TabsContent>
+
+          <TabsContent value="portfolio">
+            <PortfolioManager />
+          </TabsContent>
+        </Tabs>
       </main>
 
       {/* Footer */}

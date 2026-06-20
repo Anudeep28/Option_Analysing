@@ -17,6 +17,7 @@ export interface SimulationParams {
   numSimulations: number; // Monte Carlo paths
   timeSteps: number; // discrete time steps
   binomialSteps: number; // steps for binomial tree
+  garchVol?: number; // GARCH(1,1) fitted current vol (annualized decimal) — overrides flat σ in MC if set
 }
 
 export interface BarrierParams {
@@ -45,6 +46,11 @@ export interface Greeks {
   theta: number;
   vega: number;
   rho: number;
+  // Higher-order Greeks (investment bank standard)
+  vanna?: number;   // ∂²V/∂S∂σ — how delta changes with vol
+  volga?: number;   // ∂²V/∂σ² — convexity of price w.r.t. vol (vomma)
+  charm?: number;   // ∂²V/∂S∂t — how delta drifts per day
+  speed?: number;   // ∂³V/∂S³ — third-order spot sensitivity
 }
 
 export interface SimulationPath {

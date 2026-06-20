@@ -65,7 +65,27 @@ export function blackScholesGreeks(market: MarketData, optionType: OptionType): 
   // Theta per day
   const thetaPerDay = theta / 365;
 
-  return { delta, gamma, theta: thetaPerDay, vega, rho };
+  // --- Higher-order Greeks (analytical closed-form) ---
+  // Vanna: ∂²V/∂S∂σ = -expQT * pdfD1 * D2 / sigma  (per 1% vol move: /100)
+  const vanna = -expQT * pdfD1 * (D2 / sigma) / 100;
+
+  // Volga (Vomma): ∂²V/∂σ² = vega * D1 * D2 / sigma  (per 1% vol move: /100)
+  const volga = (vega * D1 * D2) / (sigma * 100);
+
+  // Charm: ∂²V/∂S∂t (delta decay per day)
+  // call:  -expQT * pdfD1 * (2*(r-q)*T - D2*sigma*sqrtT) / (2*T*sigma*sqrtT) + q*expQT*N(D1)
+  // put:   same first term - q*expQT*N(-D1)
+  let charm: number;
+  if (optionType === "call") {
+    charm = -expQT * (pdfD1 * ((2 * (r - q) * T - D2 * sigma * sqrtT) / (2 * T * sigma * sqrtT)) - q * normalCDF(D1)) / 365;
+  } else {
+    charm = -expQT * (pdfD1 * ((2 * (r - q) * T - D2 * sigma * sqrtT) / (2 * T * sigma * sqrtT)) + q * normalCDF(-D1)) / 365;
+  }
+
+  // Speed: ∂³V/∂S³ = -gamma/S * (D1/(sigma*sqrtT) + 1)
+  const speed = -(gamma / S) * (D1 / (sigma * sqrtT) + 1);
+
+  return { delta, gamma, theta: thetaPerDay, vega, rho, vanna, volga, charm, speed };
 }
 
 export function priceEuropeanBS(market: MarketData, optionType: OptionType): PricingResult {

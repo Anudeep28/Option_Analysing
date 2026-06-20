@@ -35,6 +35,7 @@ import { ResultsPanel } from "./results-panel";
 import { TradeDecision } from "./trade-decision";
 import { StockForecast } from "./stock-forecast";
 import { computeTechnicals } from "@/lib/technicals";
+import { computeGARCHVol } from "@/lib/vol-surface";
 
 const OPTION_STYLES: { value: OptionStyle; label: string; description: string }[] = [
   { value: "european", label: "European", description: "Exercise at expiry only" },
@@ -94,6 +95,10 @@ export function PricingForm() {
   const [isFetchingSentiment, setIsFetchingSentiment] = useState(false);
   const [sentimentError, setSentimentError] = useState<string | null>(null);
 
+  // GARCH-fitted volatility from historical closes
+  const [garchVol, setGarchVol] = useState<number | undefined>(undefined);
+  const [volSource, setVolSource] = useState<"garch" | "historical" | "manual">("manual");
+
   // Market LTP (price from demat account)
   const [marketLTP, setMarketLTP] = useState<number | undefined>(undefined);
 
@@ -107,10 +112,11 @@ export function PricingForm() {
   // Derived currency
   const currency = getCurrencySymbol(selectedSymbol);
 
-  // Derived technical score from historical closes (-100..100)
-  const technicalScore = liveHistorical?.closes && liveHistorical.closes.length >= 50
-    ? (computeTechnicals(liveHistorical.closes)?.overallScore ?? 0)
-    : 0;
+  // Derived technicals from historical closes
+  const technicals = liveHistorical?.closes && liveHistorical.closes.length >= 50
+    ? computeTechnicals(liveHistorical.closes)
+    : null;
+  const technicalScore = technicals?.overallScore ?? 0;
 
   // Results
   const [result, setResult] = useState<PricingResult | null>(null);
@@ -163,9 +169,22 @@ export function PricingForm() {
       // Auto-fill form with live data
       setSpotPrice(parseFloat(quote.lastPrice.toFixed(2)));
       setStrikePrice(Math.round(quote.lastPrice));
-      if (historical.annualizedVolatility > 0) {
+
+      // Prefer GARCH vol over simple historical std — more accurate for current market regime
+      const gv = historical.closes.length >= 30
+        ? computeGARCHVol(historical.closes)
+        : null;
+
+      if (gv !== null && gv > 0.01 && gv < 5.0) {
+        setGarchVol(gv);
+        setVolatility(parseFloat((gv * 100).toFixed(1)));
+        setVolSource("garch");
+      } else if (historical.annualizedVolatility > 0) {
+        setGarchVol(undefined);
         setVolatility(parseFloat((historical.annualizedVolatility * 100).toFixed(1)));
+        setVolSource("historical");
       }
+
       if (historical.dividendYield > 0) {
         setDividendYield(parseFloat((historical.dividendYield * 100).toFixed(2)));
       }
@@ -243,6 +262,7 @@ export function PricingForm() {
             numSimulations,
             timeSteps,
             binomialSteps,
+            garchVol,
           },
           barrier: optionStyle === "barrier" ? { barrierType, barrierLevel } : undefined,
           asian: optionStyle === "asian" ? { averageType: asianAvgType, observationFrequency: observationFreq } : undefined,
@@ -687,11 +707,19 @@ export function PricingForm() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-sm">Volatility (σ)</Label>
-                <span className="text-sm font-mono text-muted-foreground">{volatility.toFixed(1)}%</span>
+                <div className="flex items-center gap-1.5">
+                  {volSource === "garch" && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-mono">GARCH</Badge>
+                  )}
+                  {volSource === "historical" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">HVol</Badge>
+                  )}
+                  <span className="text-sm font-mono text-muted-foreground">{volatility.toFixed(1)}%</span>
+                </div>
               </div>
               <Slider
                 value={[volatility]}
-                onValueChange={(v) => setVolatility(sliderVal(v))}
+                onValueChange={(v) => { setVolatility(sliderVal(v)); setVolSource("manual"); setGarchVol(undefined); }}
                 min={1} max={150} step={0.5}
               />
             </div>
@@ -934,6 +962,8 @@ export function PricingForm() {
           vixLevel={vixLevel}
           currency={currency}
           lotSize={lotSize}
+          garchVol={garchVol}
+          technicals={technicals}
         />
       </div>
     </div>

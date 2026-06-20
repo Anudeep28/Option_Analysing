@@ -22,6 +22,10 @@ import { TechnicalAnalysisPanel } from "./technical-analysis";
 import { BehavioralSignalsPanel } from "./behavioral-signals";
 import { StrategyBuilder } from "./strategy-builder";
 import { PositionTracker } from "./position-tracker";
+import { ScenarioLadder } from "./scenario-ladder";
+import { GARCHVolForecast } from "./garch-vol-forecast";
+import { StockOutlook } from "./stock-outlook";
+import type { TechnicalIndicators } from "@/lib/technicals";
 
 interface ResultsPanelProps {
   result: PricingResult | null;
@@ -46,6 +50,8 @@ interface ResultsPanelProps {
   vixLevel?: number;
   currency?: string;
   lotSize?: number;
+  garchVol?: number;
+  technicals?: TechnicalIndicators | null;
 }
 
 function fmt(n: number, decimals = 4): string {
@@ -70,7 +76,7 @@ export function ResultsPanel({
   result, optionType, optionStyle, spotPrice, strikePrice, volatility, timeToExpiry,
   riskFreeRate, dividendYield, sentimentScore, marketLTP, onMarketLTPChange, symbol, sentimentData,
   historicalVol, historicalCloses, optionChainData, liveQuote, vixLevel,
-  currency = "₹", lotSize = 1,
+  currency = "₹", lotSize = 1, garchVol, technicals,
 }: ResultsPanelProps) {
   if (!result) {
     return (
@@ -165,6 +171,22 @@ export function ResultsPanel({
           </div>
         </CardContent>
       </Card>
+
+      {/* Stock Outlook — directional signal, price cone, target probability */}
+      {spotPrice > 0 && (historicalVol ?? 0) > 0 && (
+        <StockOutlook
+          spotPrice={spotPrice}
+          garchVol={garchVol ?? null}
+          historicalVol={historicalVol ?? volatility}
+          riskFreeRate={riskFreeRate}
+          dividendYield={dividendYield}
+          technicals={technicals ?? null}
+          sentimentScore={sentimentScore}
+          vixLevel={vixLevel}
+          currency={currency}
+          symbol={symbol}
+        />
+      )}
 
       {/* Demat Position Tracker */}
       <PositionTracker
@@ -282,6 +304,29 @@ export function ResultsPanel({
         spotPrice={spotPrice}
         optionChainData={optionChainData}
       />
+
+      {/* Scenario P&L Ladder */}
+      <ScenarioLadder
+        market={{
+          spotPrice,
+          strikePrice,
+          riskFreeRate,
+          volatility,
+          timeToExpiry,
+          dividendYield,
+        }}
+        optionType={optionType}
+        entryPrice={marketLTP ?? result.price}
+        currency={currency}
+      />
+
+      {/* GARCH Volatility Forecast */}
+      {historicalCloses && historicalCloses.length >= 60 && (
+        <GARCHVolForecast
+          historicalCloses={historicalCloses}
+          currentVol={volatility}
+        />
+      )}
 
       {/* Charts */}
       <Card>
