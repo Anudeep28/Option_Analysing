@@ -7,7 +7,9 @@
 4. [Tab 2: My Portfolio — Step-by-Step](#tab-2-my-portfolio)
 5. [Results Panels Reference](#results-panels-reference)
 6. [Practical Workflow: NSE Options](#practical-workflow-nse-options)
-7. [Glossary](#glossary)
+7. [Global Macro Impact In Detail](#global-macro-impact-in-detail)
+8. [DeepSeek API Setup](#deepseek-api-setup)
+9. [Glossary](#glossary)
 
 ---
 
@@ -19,6 +21,7 @@ This application is a **professional-grade option analysis tool** for Indian (NS
 - **Historical data**: 1 year of daily closes from Yahoo Finance, auto-fitted with GARCH(1,1) for accurate current volatility
 - **Greeks**: First-order (Δ, Γ, Θ, ν, ρ) and higher-order (Vanna, Volga, Charm, Speed) — the same set used by investment banks
 - **Stock Outlook** *(new)*: Consolidated directional signal (STRONG BUY → STRONG SELL), GARCH-based probabilistic price cone, and price target probability — all combined into one panel
+- **Global Macro Impact** *(new)*: Rule-based Munger latticework analysis that scores a macro event through six mental models for the specific stock/sector you selected
 - **Portfolio analysis**: Enter multiple positions from your demat account and see combined exposure, net Greeks, and scenario P&L
 - **Trade decision engine**: Probability of profit, expected value, risk-reward verdict
 
@@ -235,7 +238,7 @@ Plain-English interpretation of your Greeks:
 
 ### 7. AI Report
 Click **"Generate AI Report"** for a written analysis combining sentiment, technicals, pricing verdict, and risk warnings.
-> Requires an OpenAI API key set in `.env.local` as `OPENAI_API_KEY=sk-...`
+> Requires a DeepSeek API key set in `.env.local` as `DEEPSEEK_API_KEY=sk-...` — see [DeepSeek API Setup](#deepseek-api-setup).
 
 ---
 
@@ -288,6 +291,38 @@ A heatmap matrix of your option's P&L at:
 - IV changes: −20% to +20% (rows)
 
 Green = profit, Red = loss. Use this to stress-test your option against adverse moves in both spot and volatility simultaneously.
+
+---
+
+### 14. Global Macro Impact *(new)*
+
+This panel appears after you click **Fetch Live Data**. It scans recent global macro headlines, ranks the **top 3 most impactful global drivers**, and analyses each through a **Munger latticework** of mental models, specifically for the stock or index you selected.
+
+Instead of a simple "oil up → airlines down" read, it breaks the drivers into second-order effects and shows the combined macro bias for your selected stock:
+
+| Mental Model | Weight | What It Answers |
+|---|---|---|
+| **Mechanics (first-order)** | 22% | Direct cost/revenue impact on this sector |
+| **Incentives** | 14% | How management, consumers, and policymakers change behaviour |
+| **Feedback loops** | 14% | Self-reinforcing or self-correcting knock-on effects |
+| **Competitive dynamics** | 11% | Who gains or loses relative market position |
+| **Mean reversion** | 8% | How much of the shock is likely to fade over time |
+| **Inversion** | 5% | The contrarian / overshoot case |
+| **Fiscal policy / Government response** | 12% | Subsidies, taxation, PLI, public capex, and regulatory reaction |
+| **Liquidity & capital flows** | 9% | FII/DII flows, RBI liquidity, credit availability, and financing costs |
+| **Rural demand / Monsoon linkage** | 5% | Rural income, agricultural consumption, and mass-market demand |
+
+The panel shows:
+- **Primary macro event** + severity + headline
+- **Net directional badge** with a sentiment score from -100 (bearish) to +100 (bullish)
+- **Munger latticework summary** — plain-English explanation of the net effect
+- **Transmission chain** — how the event flows to the stock price
+- **Nine mental-model layers** — each with a sub-score, weight, and reasoning
+- **Duration outlook** — how long the impact typically lasts
+- **Options implication** — what the event means for IV and strategy selection
+- **Inversion signal** — the contrarian take
+
+> **How to use**: Treat the macro score as a bias, not a trade by itself. A strongly bearish macro score on a stock you already own a call on is a warning to reduce size or hedge. A mixed score means direction is unclear — favour non-directional option strategies (straddles, strangles, iron condors).
 
 ---
 
@@ -617,6 +652,139 @@ The ladder is a stress test. Read it like this:
 
 ---
 
+## Global Macro Impact In Detail
+
+The **Global Macro Impact** panel is designed to move beyond simple "oil up → airlines down" reasoning. It scans global macro headlines, ranks the **top 3 most impactful drivers**, and analyses each for the **specific stock or index you selected** using a multi-model framework inspired by Charlie Munger's latticework of mental models.
+
+### How It Works
+
+1. **Headline scan**: The app fetches recent global macro headlines (geopolitical, oil, rates, inflation, recession, China, US markets, etc.).
+2. **Event classification**: Headlines are classified into macro event types (e.g., oil spike, rate hike, geopolitical risk, INR fall).
+3. **Driver ranking**: Events are scored by frequency and severity, and the top 3 are selected as the global drivers for your stock. The primary driver gets the largest weight in the combined macro score.
+4. **Sector resolution**: The selected symbol is mapped to a sector (e.g., INDIGO → airlines, TCS → IT services, NIFTY → index).
+5. **Latticework scoring**: Each driver is scored across nine mental models, each with a calibrated weight. The summary is written specifically for your selected symbol, not just the sector.
+6. **Optional LLM enhancement**: If you set `DEEPSEEK_API_KEY`, the panel sends the rule-based result to the DeepSeek API and receives a richer, stock-specific combined narrative and a contrarian inversion signal. If the key is missing or the API fails, the panel falls back to the deterministic rule-based output.
+7. **Output**: A combined net macro score, directional badge, layered reasoning per driver, duration outlook, options implication, and inversion signal (with optional LLM summary).
+
+### The Nine Mental Models
+
+| Model | Weight | Example for Oil Spike + Airlines |
+|---|---|---|
+| **Mechanics** | 22% | ATF is 35–40% of airline costs; a crude spike directly compresses margins. |
+| **Incentives** | 14% | Airlines are incentivised to raise fares, but price elasticity limits pass-through. |
+| **Feedback loops** | 14% | Higher fares → lower load factors → revenue decline → cash-flow pressure. |
+| **Competitive dynamics** | 11% | Hedged carriers gain relative share; unhedged budget airlines lose. |
+| **Mean reversion** | 8% | Oil spikes often fade once geopolitical tension resolves; airline stocks can rebound. |
+| **Inversion** | 5% | If broad risk-off overshoots, even well-hedged airlines may become oversold. |
+| **Fiscal policy / Government response** | 12% | Higher oil prices widen the fiscal deficit and raise pressure to cut fuel excise or raise subsidies. Airlines get no direct subsidy, but road/rail alternatives become more attractive. |
+| **Liquidity & capital flows** | 9% | Oil spike → wider current account deficit → INR weakness → higher import bill and FPI outflows. Funding costs for airlines and NBFCs rise. |
+| **Rural demand / Monsoon linkage** | 5% | Fuel inflation erodes rural disposable income, weakening mass-market consumption of bus, train, and two-wheeler travel, indirectly pressuring airline volumes. |
+
+### The Micro-Transmission Flow (India-specific)
+
+The panel now traces the macro shock through the Indian economy to the specific stock:
+
+1. **Macro event** (oil spike, RBI hike, geopolitical risk, etc.)
+2. **First-order impact** on the sector (cost, revenue, margin)
+3. **Policy response** (subsidy, excise, PLI, RBI stance)
+4. **Liquidity/capital-flow effect** (FII flows, INR, credit availability)
+5. **Rural/mass-market transmission** (disposable income, agri-linked demand)
+6. **Sector-level earnings revision** (analyst estimate changes)
+7. **Stock-specific impact** (your selected symbol)
+8. **Options implication** (IV, duration, strategy)
+
+### Reading the Macro Score
+
+- **+50 to +100**: Strong bullish macro bias — tailwinds dominate.
+- **+20 to +49**: Moderate bullish bias — consider calls or bull spreads.
+- **-19 to +19**: Neutral or mixed — macro is not a strong directional edge.
+- **-20 to -49**: Moderate bearish bias — consider puts or bear spreads.
+- **-50 to -100**: Strong bearish macro bias — headwinds dominate.
+
+> **Important**: The macro score is a *bias*, not a standalone trade signal. Always combine it with the Stock Outlook, technicals, IV analysis, and your own trade plan.
+
+### How to Use It in Practice
+
+**Scenario**: You are considering buying **INDIGO 4500 CE** after an oil spike headline.
+
+1. **Fetch live data** for INDIGO.
+2. Scroll to the **Global Macro Impact** panel.
+3. If the panel shows:
+   - **Macro Bearish (-25)** with mechanics and feedback loops dominating
+   - **Duration**: Medium-term (2–6 weeks)
+   - **Options implication**: IV spikes on importers — buy puts while IV is rising
+   - **Inversion**: watch for oversold quality carriers
+4. **Decision**: Reconsider the long call. The macro headwind increases the chance the call loses from both spot direction and elevated IV. If you still want bullish exposure, use a bull call spread to limit premium, or wait for the macro shock to mean-revert.
+
+### Event-Specific Tips
+
+| Event | Sectors Most Affected | Typical Options Read |
+|---|---|---|
+| **Oil spike** | Airlines, auto, FMCG, oil & gas | IV rises on importers; puts favoured until shock fades. |
+| **Rate hike** | Real estate, auto, banking | Rate-sensitive stocks reprice; real estate puts favoured. |
+| **Rate cut** | Real estate, banking, auto | Credit growth improves; calls on rate-sensitive sectors. |
+| **Geopolitical risk** | Defence, airlines, oil & gas, index | Market-wide IV spike; index straddles short-term, defence calls. |
+| **INR fall** | IT services, pharma, airlines, oil & gas | Exporters benefit; importers hurt. |
+| **Global recession** | IT services, metals, banking, auto | Cyclical puts; defensive FMCG/pharma relative safety. |
+| **China slowdown** | Metals, auto, pharma | Commodity demand pressure; metals puts. |
+| **US market crash** | IT services, index, banking | FII outflows; index straddles, IT puts short-term. |
+| **Inflation spike** | FMCG, real estate, banking, oil & gas | Margin squeeze; rate-hike risk rises. |
+
+### Caveats
+
+- **Scores are rule-based**: The numeric scores and weights are deterministic and sector-aware. They will not know a specific company's fuel hedge ratio or exact dollar debt exposure.
+- **Reasoning is LLM-powered when a key is set**: When `DEEPSEEK_API_KEY` is configured, each of the nine mental-model descriptions is generated by DeepSeek for the specific stock, event, and headline detected — not generic text. Without the key, the panel falls back to rule-based template reasoning.
+- **Headline quality matters**: Classification depends on the words in the headline. A vague headline may produce a weak or neutral signal.
+- **Mean reversion is probabilistic**: The duration outlook is based on historical patterns, not a forecast of the specific conflict or policy path.
+- **Use with other panels**: The macro score is most useful when combined with Stock Outlook, IV analysis, GARCH forecast, and the trade decision engine.
+
+---
+
+## DeepSeek API Setup
+
+The app uses the **DeepSeek API** (`deepseek-chat` model) for three optional AI features. All three degrade gracefully — the app remains fully functional without an API key.
+
+### How to Enable
+
+1. Sign up at [platform.deepseek.com](https://platform.deepseek.com) and create an API key.
+2. In the project root, open (or create) `.env.local` and add:
+   ```
+   DEEPSEEK_API_KEY=sk-your-key-here
+   ```
+3. **Restart the dev server** (`Ctrl+C`, then `npm run dev`). Next.js only reads `.env.local` at startup.
+
+> The key is read server-side only and is never exposed to the browser.
+
+### The Three AI Features
+
+| Feature | Where | What DeepSeek Does | Fallback if No Key |
+|---|---|---|---|
+| **Nine Mental Model Reasoning** | Global Macro Impact panel | Generates one precise, stock-specific sentence per model explaining *why* the event impacts this stock through that model's lens | Generic template text (same structure, less specific) |
+| **LLM-Enhanced Macro Summary** | Global Macro Impact panel (blue box) | Writes a 3–5 sentence investor-ready combined narrative + a contrarian inversion signal for the specific stock | Panel hidden; rule-based summary shown instead |
+| **AI Investment Report** | AI Report panel | Produces a full structured report: verdict (BUY / AVOID / etc.), confidence score, key factors, risks, recommendation, and position sizing | "Generate AI Report" button returns a 503 error |
+
+### Mental Model Reasoning — What Changes With the Key
+
+Without the key, all nine mental model descriptions use a template that substitutes the event name and sector label — the sentences are structurally similar across models.
+
+With the key, DeepSeek receives the actual event, sector, stock symbol, detected headline, and each model's numeric score, then returns one concrete sentence per model grounded in the specific transmission mechanism. For example, for **HDFCBANK + Rate Hike**:
+
+| Model | Without key (template) | With key (LLM) |
+|---|---|---|
+| **Mechanics** | "A rate hike changes the direct mechanical cash-flow path for banking & financials: higher interest rates lift borrowing costs and tighten liquidity. The immediate read-through is positive for this stock." | "HDFCBANK's NIM expands as floating-rate loans (~60% of book) reprice immediately while deposit costs adjust with a lag of 1–2 quarters." |
+| **Incentives** | "Management, investor, and policy incentives shift: higher interest rates... means the reward for risk-taking vs. capital discipline tilts positive." | "Management is incentivised to grow CASA aggressively to lock in cheap funding before deposit repricing erodes the margin benefit." |
+| **Rural demand** | "Rural linkage: higher interest rates affect rural incomes... a key micro driver for banking & financials." | "Rural credit demand softens as tractor and agri-loan EMIs rise, but HDFCBANK's rural book is <15% of advances, limiting direct impact." |
+
+### Cost Estimates
+
+DeepSeek pricing is low. A typical session that triggers all three features costs approximately:
+- Mental model reasoning: ~700 tokens (~$0.0002)
+- Macro summary: ~500 tokens (~$0.0001)
+- AI Report: ~1,000 tokens (~$0.0003)
+- **Total per full analysis: < $0.001**
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -651,3 +819,8 @@ The ladder is a stress test. Read it like this:
 | **Straddle** | Buying both a call and a put at the same strike — profits if the stock moves sharply in either direction |
 | **Strangle** | Buying an OTM call and OTM put — cheaper than a straddle, profits from large moves |
 | **Iron Condor** | Selling an OTM strangle and buying a further OTM strangle for protection — profits if the stock stays within a range (neutral strategy) |
+| **Global Macro Impact** | The app's rule-based macro panel — scans headlines, ranks the top 3 global drivers, and scores each driver's impact on your selected stock/sector through a multi-model latticework |
+| **Munger Latticework** | A decision framework inspired by Charlie Munger: analyse a problem through several mental models (mechanics, incentives, feedback loops, competitive dynamics, mean reversion, inversion, fiscal policy, liquidity flows, rural demand) instead of one narrow model |
+| **Macro Score** | A composite score (-100 to +100) derived from the Munger latticework; indicates bullish/bearish/mixed bias for the selected stock |
+| **Inversion Signal** | The contrarian read inside the macro panel — what the opposite case looks like and whether the market may have overshot |
+| **LLM-Enhanced Summary** | An optional narrative generated by the DeepSeek API from the rule-based macro result; enabled by setting `DEEPSEEK_API_KEY` |

@@ -24,6 +24,35 @@ export interface ReportRequest {
   sentimentScore?: number;
   sentimentLabel?: string;
   newsHeadlines?: string[];
+  macroContext?: {
+    macroSignal: string;
+    macroScore: number;
+    primaryEvent?: string;
+    narrativeSummary?: string;
+    layers: Array<{
+      model: string;
+      label: string;
+      score: number;
+      direction: string;
+      reasoning: string;
+      weight: number;
+    }>;
+    inversionSignal?: string;
+    optionsImplication?: string;
+  };
+}
+
+export interface StockAnalysis {
+  verdict: "BUY" | "ACCUMULATE" | "HOLD" | "AVOID" | "SELL";
+  verdictColor: "green" | "yellow" | "red";
+  rationale: string;
+  mentalModelSynthesis?: string;
+  mathSignals?: string;
+  entryZone: string;
+  targetPrice: string;
+  stopLoss: string;
+  timeHorizon: string;
+  keyRisks: string[];
 }
 
 export interface ReportResponse {
@@ -35,6 +64,7 @@ export interface ReportResponse {
   risks: string[];
   recommendation: string;
   positionSizing: string;
+  stockAnalysis?: StockAnalysis;
   aiPowered: true;
   timestamp: string;
 }
@@ -56,7 +86,7 @@ export async function POST(request: NextRequest) {
     symbol, optionType, optionStyle, spotPrice, strikePrice,
     volatilityPct, timeToExpiryDays, riskFreeRatePct, theoreticalPrice,
     marketLTP, greeks, probabilityOfProfitPct, breakEven, moveNeededPct,
-    sentimentScore, sentimentLabel, newsHeadlines,
+    sentimentScore, sentimentLabel, newsHeadlines, macroContext,
   } = body;
 
   const premiumUsed = marketLTP ?? theoreticalPrice;
@@ -67,6 +97,17 @@ export async function POST(request: NextRequest) {
   const newsSection = newsHeadlines && newsHeadlines.length > 0
     ? `\nRecent news headlines (${sentimentLabel ?? "N/A"}, score ${((sentimentScore ?? 0) * 100).toFixed(0)}%):\n${newsHeadlines.slice(0, 8).map((h, i) => `${i + 1}. ${h}`).join("\n")}`
     : "\nNo news data available.";
+
+  const macroSection = macroContext
+    ? `\nMACRO LATTICEWORK (Charlie Munger's nine mental models):
+- Overall macro signal: ${macroContext.macroSignal} (net score: ${macroContext.macroScore >= 0 ? "+" : ""}${macroContext.macroScore}/100)
+- Primary event: ${macroContext.primaryEvent ?? "N/A"}
+- Narrative: ${macroContext.narrativeSummary ?? "N/A"}
+- Inversion signal: ${macroContext.inversionSignal ?? "N/A"}
+- Options implication: ${macroContext.optionsImplication ?? "N/A"}
+\nIndividual model scores (score × weight = contribution to net):
+${macroContext.layers.map((l) => `  • ${l.label} (${l.model}): score=${l.score > 0 ? "+" : ""}${l.score}, weight=${(l.weight * 100).toFixed(0)}%, direction=${l.direction} — ${l.reasoning}`).join("\n")}`
+    : "\nNo macro latticework data available.";
 
   const prompt = `You are an expert Indian options trader and financial analyst. A retail investor using a demat account (like ICICI iDirect or Zerodha) is analyzing the following option and wants a structured investment report to decide whether to buy this option.
 
@@ -93,6 +134,7 @@ TRADE METRICS:
 - Break-even price at expiry: ₹${breakEven.toFixed(2)}
 - Required underlying move to break even: ${moveNeededPct > 0 ? "+" : ""}${moveNeededPct.toFixed(2)}%
 ${newsSection}
+${macroSection}
 
 Write a structured investment report. Return ONLY a valid JSON object with exactly these fields:
 {
@@ -103,7 +145,19 @@ Write a structured investment report. Return ONLY a valid JSON object with exact
   "keyFactors": ["<factor 1>", "<factor 2>", "<factor 3>"],
   "risks": ["<risk 1>", "<risk 2>", "<risk 3>"],
   "recommendation": "<3-5 sentence concrete actionable recommendation including entry/exit logic>",
-  "positionSizing": "<1-2 sentence advice on how much capital to risk, mentioning lot sizes if relevant>"
+  "positionSizing": "<1-2 sentence advice on how much capital to risk, mentioning lot sizes if relevant>",
+  "stockAnalysis": {
+    "verdict": "BUY" | "ACCUMULATE" | "HOLD" | "AVOID" | "SELL",
+    "verdictColor": "green" | "yellow" | "red",
+    "rationale": "<3-4 sentence assessment of the underlying stock (equity delivery, not the option). MUST synthesise: (1) the macro latticework net score and which mental models are dominant, (2) what the option Greeks (especially delta and implied volatility) signal about market expectations for the stock direction, (3) the break-even move required and what it implies about fair value, and (4) news sentiment. Be specific about model names and numbers.>",
+    "mentalModelSynthesis": "<2-3 sentences explaining how the combination of the dominant mental model signals (e.g. mechanics bearish but mean-reversion bullish) resolves into a net view for the stock — where do the models agree and where do they conflict?>",
+    "mathSignals": "<1-2 sentences translating the key mathematical outputs — delta, IV, probability of ITM, break-even move — into what they imply about where the market expects the stock to go over the option's life>",
+    "entryZone": "<suggested price range to buy the stock, e.g. ₹2,400–₹2,450>",
+    "targetPrice": "<12-month price target for the stock>",
+    "stopLoss": "<recommended stop-loss level for a stock position>",
+    "timeHorizon": "<suggested holding period, e.g. 3–6 months>",
+    "keyRisks": ["<stock-level risk 1 with model reference>", "<stock-level risk 2>"]
+  }
 }
 
 Rules:
@@ -111,6 +165,9 @@ Rules:
 - Reference real NSE lot sizes where relevant (e.g. NIFTY = 75 units/lot)
 - Be direct and honest — if the trade is bad, say so clearly
 - Assume the investor is a retail trader with moderate experience
+- The stockAnalysis section must focus on buying the UNDERLYING STOCK (equity delivery), completely separate from the option trade analysis
+- In stockAnalysis.rationale explicitly reference the macro latticework net score and the 2-3 dominant mental model names
+- In stockAnalysis.mathSignals cite specific numbers: delta value, IV%, probability of ITM%, and break-even % move
 - Do NOT add any text before or after the JSON`;
 
   try {
@@ -124,7 +181,7 @@ Rules:
         model: "deepseek-chat",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
-        max_tokens: 1024,
+        max_tokens: 2000,
         response_format: { type: "json_object" },
       }),
     });

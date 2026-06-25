@@ -50,11 +50,14 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
     const step = atm * 0.02; // ~2% OTM for spreads
 
     const findPremium = (strike: number, type: "call" | "put") => {
-      if (!optionChainData) return type === "call" ? Math.max(atm - strike, 0) + atm * 0.02 : Math.max(strike - atm, 0) + atm * 0.02;
+      const fallback = type === "call" ? Math.max(atm - strike, 0) + atm * 0.02 : Math.max(strike - atm, 0) + atm * 0.02;
+      if (!optionChainData || optionChainData.length === 0) return fallback;
       const row = optionChainData.reduce((best, r) =>
         Math.abs(r.strikePrice - strike) < Math.abs(best.strikePrice - strike) ? r : best
       , optionChainData[0]);
-      return type === "call" ? row.callLTP : row.putLTP;
+      if (!row) return fallback;
+      const ltp = type === "call" ? row.callLTP : row.putLTP;
+      return typeof ltp === "number" && ltp > 0 ? ltp : fallback;
     };
 
     let newLegs: StrategyLeg[] = [];
@@ -190,9 +193,9 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
   }
 
   return (
-    <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-4">
-      <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-        <span className="text-indigo-400">🏗️</span> Strategy Builder
+    <div className="mt-4 rounded-lg border border-border bg-muted/40 p-4">
+      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+        <span className="text-indigo-600 dark:text-indigo-400">🏗️</span> Strategy Builder
       </h3>
 
       {/* Preset Selection */}
@@ -203,8 +206,8 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
             onClick={() => applyPreset(s.name)}
             className={`px-2 py-1 text-xs rounded border transition-colors ${
               selectedPreset === s.name
-                ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300"
-                : "bg-white/5 border-white/10 text-white/60 hover:border-white/30"
+                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-600 dark:text-indigo-300"
+                : "bg-muted border-border text-muted-foreground hover:border-foreground/30"
             }`}
           >
             {s.name}
@@ -216,11 +219,11 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
       {legs.length > 0 && (
         <div className="space-y-2 mb-3">
           {legs.map((leg, i) => (
-            <div key={i} className="flex items-center gap-2 rounded bg-white/5 p-2">
+            <div key={i} className="flex items-center gap-2 rounded bg-muted p-2">
               <select
                 value={leg.position}
                 onChange={(e) => updateLeg(i, "position", e.target.value)}
-                className="bg-white/10 border border-white/20 rounded text-xs text-white px-1.5 py-1"
+                className="bg-muted-foreground/10 border border-border rounded text-xs text-foreground px-1.5 py-1"
               >
                 <option value="buy">Buy</option>
                 <option value="sell">Sell</option>
@@ -228,7 +231,7 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
               <select
                 value={leg.type}
                 onChange={(e) => updateLeg(i, "type", e.target.value)}
-                className="bg-white/10 border border-white/20 rounded text-xs text-white px-1.5 py-1"
+                className="bg-muted-foreground/10 border border-border rounded text-xs text-foreground px-1.5 py-1"
               >
                 <option value="call">Call</option>
                 <option value="put">Put</option>
@@ -237,26 +240,26 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
                 type="number"
                 value={leg.strike}
                 onChange={(e) => updateLeg(i, "strike", parseFloat(e.target.value) || 0)}
-                className="bg-white/10 border border-white/20 rounded text-xs text-white px-2 py-1 w-20"
+                className="bg-muted-foreground/10 border border-border rounded text-xs text-foreground px-2 py-1 w-20"
                 placeholder="Strike"
               />
               <input
                 type="number"
                 value={leg.premium}
                 onChange={(e) => updateLeg(i, "premium", parseFloat(e.target.value) || 0)}
-                className="bg-white/10 border border-white/20 rounded text-xs text-white px-2 py-1 w-16"
+                className="bg-muted-foreground/10 border border-border rounded text-xs text-foreground px-2 py-1 w-16"
                 placeholder="Premium"
               />
               <input
                 type="number"
                 value={leg.quantity}
                 onChange={(e) => updateLeg(i, "quantity", parseInt(e.target.value) || 1)}
-                className="bg-white/10 border border-white/20 rounded text-xs text-white px-2 py-1 w-12"
+                className="bg-muted-foreground/10 border border-border rounded text-xs text-foreground px-2 py-1 w-12"
                 placeholder="Qty"
               />
               <button
                 onClick={() => removeLeg(i)}
-                className="text-red-400 hover:text-red-300 text-xs px-1"
+                className="text-red-600 dark:text-red-400 hover:text-red-500 dark:hover:text-red-300 text-xs px-1"
               >
                 ✕
               </button>
@@ -265,13 +268,13 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
           <div className="flex gap-2">
             <button
               onClick={addLeg}
-              className="text-xs text-indigo-400 hover:text-indigo-300 border border-indigo-500/30 rounded px-2 py-1"
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 border border-indigo-500/30 rounded px-2 py-1"
             >
               + Add Leg
             </button>
             <button
               onClick={calculate}
-              className="text-xs text-white bg-indigo-500/30 hover:bg-indigo-500/50 border border-indigo-500/50 rounded px-3 py-1 font-medium"
+              className="text-xs text-foreground bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded px-3 py-1 font-medium"
             >
               Calculate
             </button>
@@ -281,31 +284,31 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
 
       {/* Results */}
       {result && (
-        <div className="rounded-md border border-white/10 bg-white/5 p-3">
-          <div className="text-xs font-semibold text-indigo-300 mb-2">{result.name} — Results</div>
+        <div className="rounded-md border border-border bg-muted p-3">
+          <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-300 mb-2">{result.name} — Results</div>
 
           <div className="grid grid-cols-2 gap-2 mb-2">
-            <div className="rounded bg-white/5 p-2">
-              <div className="text-xs text-white/50">Max Profit</div>
-              <div className="text-sm font-bold text-green-400">
+            <div className="rounded bg-muted-foreground/5 p-2">
+              <div className="text-xs text-muted-foreground">Max Profit</div>
+              <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
                 {result.maxProfit === "unlimited" ? "Unlimited" : `₹${(result.maxProfit as number).toFixed(2)}`}
               </div>
             </div>
-            <div className="rounded bg-white/5 p-2">
-              <div className="text-xs text-white/50">Max Loss</div>
-              <div className="text-sm font-bold text-red-400">
+            <div className="rounded bg-muted-foreground/5 p-2">
+              <div className="text-xs text-muted-foreground">Max Loss</div>
+              <div className="text-sm font-bold text-red-600 dark:text-red-400">
                 {result.maxLoss === "unlimited" ? "Unlimited" : `₹${(result.maxLoss as number).toFixed(2)}`}
               </div>
             </div>
-            <div className="rounded bg-white/5 p-2">
-              <div className="text-xs text-white/50">Net Premium</div>
-              <div className={`text-sm font-bold ${result.netPremium >= 0 ? "text-green-400" : "text-red-400"}`}>
+            <div className="rounded bg-muted-foreground/5 p-2">
+              <div className="text-xs text-muted-foreground">Net Premium</div>
+              <div className={`text-sm font-bold ${result.netPremium >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                 {result.netPremium >= 0 ? "Credit" : "Debit"} ₹{Math.abs(result.netPremium).toFixed(2)}
               </div>
             </div>
-            <div className="rounded bg-white/5 p-2">
-              <div className="text-xs text-white/50">Breakeven(s)</div>
-              <div className="text-sm font-bold text-white">
+            <div className="rounded bg-muted-foreground/5 p-2">
+              <div className="text-xs text-muted-foreground">Breakeven(s)</div>
+              <div className="text-sm font-bold text-foreground">
                 {result.breakevens.length > 0
                   ? result.breakevens.map((b) => `₹${b.toLocaleString()}`).join(", ")
                   : "N/A"}
@@ -314,21 +317,21 @@ export function StrategyBuilder({ spotPrice, optionChainData }: StrategyBuilderP
           </div>
 
           <div className="grid grid-cols-4 gap-1 text-center">
-            <div className="rounded bg-white/5 p-1">
-              <div className="text-[10px] text-white/40">Net Δ</div>
-              <div className="text-xs font-medium text-white">{result.combinedGreeks.delta.toFixed(3)}</div>
+            <div className="rounded bg-muted-foreground/5 p-1">
+              <div className="text-[10px] text-muted-foreground/70">Net Δ</div>
+              <div className="text-xs font-medium text-foreground">{result.combinedGreeks.delta.toFixed(3)}</div>
             </div>
-            <div className="rounded bg-white/5 p-1">
-              <div className="text-[10px] text-white/40">Net Θ</div>
-              <div className="text-xs font-medium text-white">{result.combinedGreeks.theta.toFixed(2)}</div>
+            <div className="rounded bg-muted-foreground/5 p-1">
+              <div className="text-[10px] text-muted-foreground/70">Net Θ</div>
+              <div className="text-xs font-medium text-foreground">{result.combinedGreeks.theta.toFixed(2)}</div>
             </div>
-            <div className="rounded bg-white/5 p-1">
-              <div className="text-[10px] text-white/40">Net ν</div>
-              <div className="text-xs font-medium text-white">{result.combinedGreeks.vega.toFixed(2)}</div>
+            <div className="rounded bg-muted-foreground/5 p-1">
+              <div className="text-[10px] text-muted-foreground/70">Net ν</div>
+              <div className="text-xs font-medium text-foreground">{result.combinedGreeks.vega.toFixed(2)}</div>
             </div>
-            <div className="rounded bg-white/5 p-1">
-              <div className="text-[10px] text-white/40">Risk/Reward</div>
-              <div className="text-xs font-medium text-white">
+            <div className="rounded bg-muted-foreground/5 p-1">
+              <div className="text-[10px] text-muted-foreground/70">Risk/Reward</div>
+              <div className="text-xs font-medium text-foreground">
                 {result.maxProfit !== "unlimited" && result.maxLoss !== "unlimited"
                   ? `1:${Math.abs((result.maxProfit as number) / (result.maxLoss as number)).toFixed(1)}`
                   : "∞"}

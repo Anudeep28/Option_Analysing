@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Target, TrendingUp, TrendingDown, IndianRupee } from "lucide-react";
 import { normalCDF } from "@/lib/math";
-import type { OptionType } from "@/lib/types";
+import type { OptionType, SimulationPath } from "@/lib/types";
+import { PayoffChart } from "./payoff-chart";
+import { SimulationChart } from "./simulation-chart";
 
 interface ProfitProbabilityProps {
   optionType: OptionType;
@@ -21,6 +24,7 @@ interface ProfitProbabilityProps {
   theoreticalPrice: number;
   marketLTP?: number;
   onMarketLTPChange?: (v: number | undefined) => void;
+  samplePaths?: SimulationPath[];
 }
 
 function computeD2(
@@ -35,7 +39,7 @@ const MOVE_LEVELS = [-15, -10, -5, -3, 0, 3, 5, 10, 15];
 
 export function ProfitProbability({
   optionType, spotPrice, strikePrice, volatility, timeToExpiry,
-  riskFreeRate, dividendYield, theoreticalPrice, marketLTP, onMarketLTPChange,
+  riskFreeRate, dividendYield, theoreticalPrice, marketLTP, onMarketLTPChange, samplePaths,
 }: ProfitProbabilityProps) {
   const [ltpInput, setLtpInput] = useState(marketLTP !== undefined ? String(marketLTP) : "");
 
@@ -84,10 +88,35 @@ export function ProfitProbability({
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Target className="size-5" />
-          Probability of Profit
+          Probability &amp; Payoff
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
+        <Tabs defaultValue="probability">
+          <TabsList className="w-full">
+            <TabsTrigger value="probability" className="flex-1">Probability of Profit</TabsTrigger>
+            <TabsTrigger value="payoff" className="flex-1">Payoff Diagram</TabsTrigger>
+            {samplePaths && samplePaths.length > 0 && (
+              <TabsTrigger value="paths" className="flex-1">Simulation Paths</TabsTrigger>
+            )}
+          </TabsList>
+
+          <TabsContent value="payoff" className="mt-4">
+            <PayoffChart
+              optionType={optionType}
+              strikePrice={strikePrice}
+              premium={theoreticalPrice}
+              spotPrice={spotPrice}
+            />
+          </TabsContent>
+
+          {samplePaths && samplePaths.length > 0 && (
+            <TabsContent value="paths" className="mt-4">
+              <SimulationChart paths={samplePaths} strikePrice={strikePrice} />
+            </TabsContent>
+          )}
+
+          <TabsContent value="probability" className="mt-4 space-y-5">
 
         {/* Market LTP input */}
         <div className="space-y-1.5">
@@ -220,6 +249,9 @@ export function ProfitProbability({
             * P&amp;L shown per unit. Multiply by lot size for actual P&amp;L (e.g. NIFTY = 75 units/lot).
           </p>
         </div>
+
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   );

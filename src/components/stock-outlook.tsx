@@ -162,11 +162,12 @@ interface StockOutlookProps {
   vixLevel?: number;
   currency?: string;
   symbol?: string;
+  macroScore?: number;    // -100..+100 from macro-impact engine
 }
 
 export function StockOutlook({
   spotPrice, garchVol, historicalVol, riskFreeRate, dividendYield,
-  technicals, sentimentScore, vixLevel, currency = "₹", symbol,
+  technicals, sentimentScore, vixLevel, currency = "₹", symbol, macroScore,
 }: StockOutlookProps) {
   const [horizonDays, setHorizonDays] = useState(21);
   const [targetPrice, setTargetPrice] = useState<number | "">(
@@ -177,8 +178,8 @@ export function StockOutlook({
   const techScore = technicals?.overallScore ?? 0;
 
   const signal = useMemo(() =>
-    buildConsolidatedSignal(technicals, garchVol, historicalVol, sentimentScore, vixLevel),
-    [technicals, garchVol, historicalVol, sentimentScore, vixLevel]
+    buildConsolidatedSignal(technicals, garchVol, historicalVol, sentimentScore, vixLevel, macroScore),
+    [technicals, garchVol, historicalVol, sentimentScore, vixLevel, macroScore]
   );
 
   const cone = useMemo(() =>

@@ -34,8 +34,10 @@ import {
 import { ResultsPanel } from "./results-panel";
 import { TradeDecision } from "./trade-decision";
 import { StockForecast } from "./stock-forecast";
+import { MacroImpactPanel } from "./macro-impact";
 import { computeTechnicals } from "@/lib/technicals";
 import { computeGARCHVol } from "@/lib/vol-surface";
+import type { MacroImpactResult } from "@/lib/macro-impact";
 
 const OPTION_STYLES: { value: OptionStyle; label: string; description: string }[] = [
   { value: "european", label: "European", description: "Exercise at expiry only" },
@@ -98,6 +100,10 @@ export function PricingForm() {
   // GARCH-fitted volatility from historical closes
   const [garchVol, setGarchVol] = useState<number | undefined>(undefined);
   const [volSource, setVolSource] = useState<"garch" | "historical" | "manual">("manual");
+
+  // Global macro impact
+  const [macroData, setMacroData] = useState<MacroImpactResult | null>(null);
+  const [isFetchingMacro, setIsFetchingMacro] = useState(false);
 
   // Market LTP (price from demat account)
   const [marketLTP, setMarketLTP] = useState<number | undefined>(undefined);
@@ -200,15 +206,25 @@ export function PricingForm() {
         // NSE option chain is optional — don't treat as error
       }
 
-      // Try fetching India VIX
+      // Try fetching India VIX and Global Macro in parallel
       try {
-        const vixRes = await fetch("/api/market-data/vix");
-        if (vixRes.ok) {
-          const vixData = await vixRes.json();
+        setIsFetchingMacro(true);
+        const [vixRes, macroRes] = await Promise.allSettled([
+          fetch("/api/market-data/vix"),
+          fetch(`/api/market-data/macro?symbol=${encodeURIComponent(selectedSymbol)}&spot=${quote.lastPrice.toFixed(2)}`),
+        ]);
+        if (vixRes.status === "fulfilled" && vixRes.value.ok) {
+          const vixData = await vixRes.value.json();
           if (vixData.vixLevel) setVixLevel(vixData.vixLevel);
         }
+        if (macroRes.status === "fulfilled" && macroRes.value.ok) {
+          const md = await macroRes.value.json() as MacroImpactResult;
+          setMacroData(md);
+        }
       } catch {
-        // VIX is optional
+        // VIX/macro are optional
+      } finally {
+        setIsFetchingMacro(false);
       }
     } catch (e) {
       setLiveError(e instanceof Error ? e.message : "Failed to fetch live data");
@@ -939,7 +955,7 @@ export function PricingForm() {
       </div>
 
       {/* Right: Results Panel */}
-      <div>
+      <div className="space-y-4">
         <ResultsPanel
           result={result}
           optionType={optionType}
@@ -964,7 +980,22 @@ export function PricingForm() {
           lotSize={lotSize}
           garchVol={garchVol}
           technicals={technicals}
+          macroScore={macroData?.macroScore}
+          macroData={macroData ?? undefined}
         />
+
+        {/* Global Macro Impact panel */}
+        {(macroData || isFetchingMacro) && (
+          <MacroImpactPanel
+            data={macroData ?? {
+              events: [], primaryEvent: null, topEvents: [], latticework: null,
+              sectorImpact: { direction: "neutral", score: 0, reason: "", chain: "" },
+              macroScore: 0, macroSignal: "neutral", summary: "",
+            }}
+            symbol={selectedSymbol ?? undefined}
+            isLoading={isFetchingMacro && !macroData}
+          />
+        )}
       </div>
     </div>
     </div>

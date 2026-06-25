@@ -143,87 +143,88 @@ export function buildConsolidatedSignal(
   historicalVol: number,
   sentimentScore: number | undefined,
   vixLevel: number | undefined,
+  macroScore?: number, // -100..+100 from macro-impact engine
 ): ConsolidatedSignal {
   const components: ConsolidatedSignal["components"] = [];
   let totalScore = 0;
   let totalWeight = 0;
 
-  // 1. Trend (weight 35)
+  // 1. Trend (weight 30)
   if (technicals) {
     const trendScore =
-      technicals.trendDirection === "strong_uptrend" ? 35 :
-      technicals.trendDirection === "uptrend" ? 20 :
-      technicals.trendDirection === "strong_downtrend" ? -35 :
-      technicals.trendDirection === "downtrend" ? -20 : 0;
+      technicals.trendDirection === "strong_uptrend" ? 30 :
+      technicals.trendDirection === "uptrend" ? 18 :
+      technicals.trendDirection === "strong_downtrend" ? -30 :
+      technicals.trendDirection === "downtrend" ? -18 : 0;
     components.push({
       label: "Trend (SMA 50/200)",
       signal: trendScore > 0 ? "bullish" : trendScore < 0 ? "bearish" : "neutral",
-      weight: 35,
+      weight: 30,
       contribution: trendScore,
       detail: technicals.trendDirection.replace(/_/g, " "),
     });
-    totalScore += trendScore; totalWeight += 35;
+    totalScore += trendScore; totalWeight += 30;
   }
 
-  // 2. RSI (weight 15)
+  // 2. RSI (weight 12)
   if (technicals) {
     const rsiScore =
-      technicals.rsiSignal === "oversold" ? 15 :
-      technicals.rsiSignal === "overbought" ? -15 : 0;
+      technicals.rsiSignal === "oversold" ? 12 :
+      technicals.rsiSignal === "overbought" ? -12 : 0;
     components.push({
       label: "RSI-14",
       signal: rsiScore > 0 ? "bullish" : rsiScore < 0 ? "bearish" : "neutral",
-      weight: 15,
+      weight: 12,
       contribution: rsiScore,
       detail: `RSI ${technicals.rsi14.toFixed(1)} — ${technicals.rsiSignal}`,
     });
-    totalScore += rsiScore; totalWeight += 15;
+    totalScore += rsiScore; totalWeight += 12;
   }
 
-  // 3. MACD (weight 20)
+  // 3. MACD (weight 18)
   if (technicals) {
     const macdScore =
-      technicals.macdSignal === "bullish" ? 20 :
-      technicals.macdSignal === "bearish" ? -20 : 0;
+      technicals.macdSignal === "bullish" ? 18 :
+      technicals.macdSignal === "bearish" ? -18 : 0;
     components.push({
       label: "MACD",
       signal: technicals.macdSignal === "bullish" ? "bullish" : technicals.macdSignal === "bearish" ? "bearish" : "neutral",
-      weight: 20,
+      weight: 18,
       contribution: macdScore,
       detail: `Histogram ${technicals.macd.histogram >= 0 ? "+" : ""}${technicals.macd.histogram.toFixed(2)}`,
     });
-    totalScore += macdScore; totalWeight += 20;
+    totalScore += macdScore; totalWeight += 18;
   }
 
-  // 4. Bollinger (weight 10)
+  // 4. Bollinger (weight 8)
   if (technicals) {
     const bbScore =
-      technicals.bbSignal === "oversold" ? 10 :
-      technicals.bbSignal === "overbought" ? -10 : 0;
+      technicals.bbSignal === "oversold" ? 8 :
+      technicals.bbSignal === "overbought" ? -8 : 0;
     components.push({
       label: "Bollinger Bands",
       signal: bbScore > 0 ? "bullish" : bbScore < 0 ? "bearish" : "neutral",
-      weight: 10,
+      weight: 8,
       contribution: bbScore,
       detail: `%B = ${(technicals.bollingerBands.percentB * 100).toFixed(0)}%`,
     });
-    totalScore += bbScore; totalWeight += 10;
+    totalScore += bbScore; totalWeight += 8;
   }
 
-  // 5. News Sentiment (weight 15)
+  // 5. News Sentiment (weight 12)
   if (sentimentScore !== undefined) {
-    const sentScore = Math.round((sentimentScore / 100) * 15);
+    const sentScore = Math.round((sentimentScore / 100) * 12);
     components.push({
       label: "News Sentiment",
-      signal: sentScore > 3 ? "bullish" : sentScore < -3 ? "bearish" : "neutral",
-      weight: 15,
+      signal: sentScore > 2 ? "bullish" : sentScore < -2 ? "bearish" : "neutral",
+      weight: 12,
       contribution: sentScore,
       detail: `Score ${sentimentScore > 0 ? "+" : ""}${sentimentScore.toFixed(0)}/100`,
     });
-    totalScore += sentScore; totalWeight += 15;
+    totalScore += sentScore; totalWeight += 12;
   }
 
-  // 6. Vol Regime (weight 5) — compressed vol → directionally neutral, elevated → caution
+  // 6. Vol Regime (weight 5)
   if (garchVol !== null) {
     const volRatio = garchVol / Math.max(historicalVol, 0.01);
     const volScore = volRatio > 1.3 ? -5 : volRatio < 0.8 ? 3 : 0;
@@ -235,6 +236,19 @@ export function buildConsolidatedSignal(
       detail: `GARCH vol ${(garchVol * 100).toFixed(1)}% vs HVol ${(historicalVol * 100).toFixed(1)}%`,
     });
     totalScore += volScore; totalWeight += 5;
+  }
+
+  // 7. Global Macro Impact (weight 15)
+  if (macroScore !== undefined && macroScore !== 0) {
+    const macroContrib = Math.round((macroScore / 100) * 15);
+    components.push({
+      label: "Global Macro",
+      signal: macroContrib > 2 ? "bullish" : macroContrib < -2 ? "bearish" : "neutral",
+      weight: 15,
+      contribution: macroContrib,
+      detail: `Macro score ${macroScore >= 0 ? "+" : ""}${macroScore}/100`,
+    });
+    totalScore += macroContrib; totalWeight += 15;
   }
 
   // Normalise score to -100..+100 range
