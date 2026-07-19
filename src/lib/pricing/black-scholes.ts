@@ -1,6 +1,85 @@
 import { normalCDF, normalPDF } from "../math";
 import type { MarketData, OptionType, Greeks, PricingResult } from "../types";
 
+/**
+ * Solve for the implied volatility that makes the Black-Scholes price equal
+ * `premium`. Uses Newton-Raphson with a bisection fallback for robustness.
+ * Returns null if the premium is outside no-arbitrage bounds.
+ */
+export function impliedVolatility(
+  premium: number,
+  market: Omit<MarketData, "volatility">,
+  optionType: OptionType,
+): number | null {
+  const { spotPrice: S, strikePrice: K, riskFreeRate: r, timeToExpiry: T, dividendYield: q } = market;
+
+  if (premium <= 0 || T <= 0 || S <= 0 || K <= 0) return null;
+
+  const intrinsic = optionType === "call"
+    ? Math.max(S - K, 0)
+    : Math.max(K - S, 0);
+  if (premium < intrinsic) return null;
+
+  // Vega is S * sqrt(T) * pdf(d1) * exp(-qT) / 100
+  function vegaAt(sigma: number): number {
+    if (sigma <= 0) return 0;
+    const d1 = (Math.log(S / K) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+    return (S * Math.exp(-q * T) * Math.sqrt(T) * normalPDF(d1)) / 100;
+  }
+
+  function priceAt(sigma: number): number {
+    return blackScholesPrice({ ...market, volatility: sigma }, optionType);
+  }
+
+  // Bracket the root
+  let lo = 0.001;
+  let hi = 5.0;
+  let pLo = priceAt(lo);
+  let pHi = priceAt(hi);
+
+  if (premium > Math.max(pLo, pHi)) return null;
+
+  // If premium is above hi, expand; if below lo, return null
+  if (premium > pHi) {
+    hi = 10.0;
+    pHi = priceAt(hi);
+    if (premium > pHi) return null;
+  }
+
+  let sigma = Math.sqrt(2 * Math.PI / T) * (premium / S); // rough initial guess
+  sigma = Math.max(lo, Math.min(hi, sigma));
+
+  for (let i = 0; i < 100; i++) {
+    const price = priceAt(sigma);
+    const diff = price - premium;
+    if (Math.abs(diff) < 1e-6) return sigma;
+
+    const v = vegaAt(sigma);
+    let sigmaNew = sigma;
+    if (v > 1e-10) {
+      sigmaNew = sigma - diff / v;
+    }
+
+    // Fall back to bisection if Newton steps outside bracket or vega too small
+    if (sigmaNew <= lo || sigmaNew >= hi || v <= 1e-10) {
+      const mid = (lo + hi) / 2;
+      const pMid = priceAt(mid);
+      if ((pMid - premium) * (pLo - premium) > 0) {
+        lo = mid;
+        pLo = pMid;
+      } else {
+        hi = mid;
+        pHi = pMid;
+      }
+      sigmaNew = (lo + hi) / 2;
+    }
+
+    sigma = sigmaNew;
+  }
+
+  return sigma;
+}
+
 function d1(S: number, K: number, r: number, q: number, sigma: number, T: number): number {
   return (Math.log(S / K) + (r - q + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
 }

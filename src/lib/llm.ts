@@ -49,7 +49,7 @@ export async function computeLatticeworkWithLLM(
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) return null;
 
-  const headlineList = input.headlines.slice(0, 12).map((h, i) => `${i + 1}. ${h}`).join("\n");
+  const headlineList = input.headlines.slice(0, 24).map((h, i) => `${i + 1}. ${h}`).join("\n");
   const spotNote = input.spotPrice ? `Current spot price: ₹${input.spotPrice.toFixed(2)}` : "Spot price: not provided";
 
   const prompt = `You are a senior India-focused equity analyst applying Charlie Munger's latticework of mental models to analyse the macro impact on a specific stock.
@@ -58,17 +58,17 @@ STOCK CONTEXT:
 - Stock: ${input.symbol}
 - Sector: ${input.sector}
 - ${spotNote}
-- Macro event: ${input.eventName}
-- Transmission channel: ${input.eventChannel}
+- News synthesis scope: ${input.eventName}
+- Analysis objective: ${input.eventChannel}
 
-LIVE GLOBAL NEWS HEADLINES (analyse these to calibrate your scores):
+LIVE NEWS HEADLINES (the [Global], [India], and [Company] labels identify each headline's scope):
 ${headlineList}
 
 MENTAL MODEL DEFINITIONS:
 ${MENTAL_MODEL_DEFINITIONS}
 
 Your task:
-For each of the 9 mental models, reason carefully about the specific impact of the above macro event and headlines on ${input.symbol} (${input.sector} sector). Then output:
+For each of the 9 mental models, reason carefully about the combined impact of the live headlines on ${input.symbol} (${input.sector} sector). Do not force the news into predefined event categories. Then output:
 - score: integer from -100 to +100. Positive = bullish for the stock. Negative = bearish. 0 = neutral. Use the full range — do not cluster everything near zero.
 - weight: decimal 0.00–1.00 representing how much THIS model matters for THIS specific event+sector combination. All 9 weights MUST sum to exactly 1.00.
 - reasoning: ONE precise sentence (max 35 words) explaining the specific impact on ${input.symbol} through this model's lens. Be concrete, cite the transmission mechanism.

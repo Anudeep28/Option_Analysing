@@ -3,6 +3,7 @@ export type OptionType = "call" | "put";
 export type PricingMethod = "black-scholes" | "binomial-tree" | "monte-carlo";
 export type BarrierType = "up-and-in" | "up-and-out" | "down-and-in" | "down-and-out";
 export type AsianAverageType = "arithmetic" | "geometric";
+export type DayCountConvention = "act/365" | "act/360" | "30/360";
 
 export interface MarketData {
   spotPrice: number;

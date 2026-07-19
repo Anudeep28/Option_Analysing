@@ -12,30 +12,8 @@ export interface MonteCarloOptions {
   simulation: SimulationParams;
   barrier?: BarrierParams;
   asian?: AsianParams;
-  useHeston?: boolean;
-  hestonParams?: HestonParams;
-  garchVol?: number; // GARCH(1,1) current vol — used as effective sigma for paths & Heston v0
+  garchVol?: number; // GARCH(1,1) current vol — used as effective sigma for paths
 }
-
-// --- Heston Stochastic Volatility Model Parameters ---
-// dS = (r-q)S dt + sqrt(V) S dW1
-// dV = kappa*(theta - V) dt + xi*sqrt(V) dW2
-// corr(dW1, dW2) = rho
-export interface HestonParams {
-  kappa: number;   // mean reversion speed (typical: 1-5)
-  theta: number;   // long-run variance (e.g. 0.04 = 20% vol)
-  xi: number;      // vol of vol (typical: 0.3-1.0)
-  rho: number;     // spot-vol correlation (typical: -0.7 to -0.3 for equities)
-  v0: number;      // initial variance (= sigma^2 as starting point)
-}
-
-export const DEFAULT_HESTON_PARAMS: HestonParams = {
-  kappa: 2.0,
-  theta: 0.04,
-  xi: 0.5,
-  rho: -0.7,
-  v0: 0.04,
-};
 
 // --- GBM path simulation (with antithetic variate option) ---
 function simulateGBMPath(
@@ -50,32 +28,6 @@ function simulateGBMPath(
   for (let i = 1; i <= steps; i++) {
     const z = zs ? zs[i - 1] : randomNormal();
     path[i] = path[i - 1] * Math.exp(drift + diffusion * z);
-  }
-  return path;
-}
-
-// --- Heston path simulation using Euler-Maruyama discretization ---
-// Returns spot path only (variance path is internal).
-function simulateHestonPath(
-  S: number, r: number, q: number, T: number, steps: number,
-  hp: HestonParams, zs1?: number[], zs2?: number[],
-): number[] {
-  const dt = T / steps;
-  const sqrtDt = Math.sqrt(dt);
-  const path = new Array(steps + 1);
-  path[0] = S;
-  let V = Math.max(hp.v0, 0);
-  const { kappa, theta, xi, rho } = hp;
-
-  for (let i = 1; i <= steps; i++) {
-    const z1 = zs1 ? zs1[i - 1] : randomNormal();
-    const z2raw = zs2 ? zs2[i - 1] : randomNormal();
-    const z2 = rho * z1 + Math.sqrt(1 - rho * rho) * z2raw;
-    const sqrtV = Math.sqrt(Math.max(V, 0));
-    // Full truncation scheme for variance (Andersen 2007 — prevents negative variance)
-    const dV = kappa * (theta - Math.max(V, 0)) * dt + xi * sqrtV * sqrtDt * z2;
-    V = Math.max(V + dV, 0);
-    path[i] = path[i - 1] * Math.exp((r - q - 0.5 * Math.max(V, 0)) * dt + sqrtV * sqrtDt * z1);
   }
   return path;
 }
@@ -205,30 +157,21 @@ function longstaffSchwartzPrice(
 function generatePaths(
   S: number, r: number, q: number, sigma: number, T: number,
   steps: number, numSims: number,
-  useHeston: boolean, hestonParams: HestonParams,
 ): number[][] {
   const paths: number[][] = [];
   const halfSims = Math.floor(numSims / 2);
 
   for (let i = 0; i < halfSims; i++) {
     // Draw correlated standard normals for each step — use Sobol index for QMC
-    const zs1: number[] = [];
-    const zs2: number[] = [];
+    const zs: number[] = [];
     for (let t = 0; t < steps; t++) {
-      const [za, zb] = sobolNormalPair(i * steps + t + 1);
-      zs1.push(za);
-      zs2.push(zb);
+      const [za] = sobolNormalPair(i * steps + t + 1);
+      zs.push(za);
     }
-    const antiZs1 = zs1.map((z) => -z);
-    const antiZs2 = zs2.map((z) => -z);
+    const antiZs = zs.map((z) => -z);
 
-    if (useHeston) {
-      paths.push(simulateHestonPath(S, r, q, T, steps, hestonParams, zs1, zs2));
-      paths.push(simulateHestonPath(S, r, q, T, steps, hestonParams, antiZs1, antiZs2));
-    } else {
-      paths.push(simulateGBMPath(S, r, q, sigma, T, steps, zs1));
-      paths.push(simulateGBMPath(S, r, q, sigma, T, steps, antiZs1));
-    }
+    paths.push(simulateGBMPath(S, r, q, sigma, T, steps, zs));
+    paths.push(simulateGBMPath(S, r, q, sigma, T, steps, antiZs));
   }
   return paths;
 }
@@ -238,8 +181,7 @@ function generatePaths(
 // ============================================================
 export function monteCarloPrice(opts: MonteCarloOptions): PricingResult {
   const start = performance.now();
-  const { market, optionType, optionStyle, simulation, barrier, asian,
-    useHeston = false, hestonParams = DEFAULT_HESTON_PARAMS, garchVol } = opts;
+  const { market, optionType, optionStyle, simulation, barrier, asian, garchVol } = opts;
   const { spotPrice: S, strikePrice: K, riskFreeRate: r, volatility: sigma, timeToExpiry: T, dividendYield: q } = market;
   const { numSimulations, timeSteps } = simulation;
 
@@ -247,14 +189,10 @@ export function monteCarloPrice(opts: MonteCarloOptions): PricingResult {
   // Falls back to market sigma (historical std) if not available.
   const effectiveSigma = garchVol ?? sigma;
 
-  const hp: HestonParams = useHeston
-    ? { ...hestonParams, v0: effectiveSigma * effectiveSigma }
-    : { ...hestonParams, v0: effectiveSigma * effectiveSigma };
-
   // For American options, we need all paths stored for LS regression
   const needLS = optionStyle === "american";
 
-  const allPaths = generatePaths(S, r, q, effectiveSigma, T, timeSteps, numSimulations, useHeston, hp);
+  const allPaths = generatePaths(S, r, q, effectiveSigma, T, timeSteps, numSimulations);
   const actualSims = allPaths.length;
   const discount = Math.exp(-r * T);
 
@@ -296,7 +234,6 @@ export function monteCarloPrice(opts: MonteCarloOptions): PricingResult {
           ? Math.max(path[timeSteps] - K, 0)
           : Math.max(K - path[timeSteps], 0));
         sumControlPayoff += rawPv;
-        sumControlPayoffSq += rawPv * rawPv;
       }
     }
 
@@ -367,15 +304,13 @@ export function monteCarloPrice(opts: MonteCarloOptions): PricingResult {
 }
 
 function mcPriceOnly(opts: MonteCarloOptions): number {
-  const { market, optionType, optionStyle, simulation, barrier, asian,
-    useHeston = false, hestonParams = DEFAULT_HESTON_PARAMS, garchVol } = opts;
+  const { market, optionType, optionStyle, simulation, barrier, asian, garchVol } = opts;
   const { spotPrice: S, strikePrice: K, riskFreeRate: r, volatility: sigma, timeToExpiry: T, dividendYield: q } = market;
   const reducedSims = Math.min(simulation.numSimulations, 4000);
   const steps = simulation.timeSteps;
   const effectiveSigma = garchVol ?? sigma;
-  const hp: HestonParams = { ...hestonParams, v0: effectiveSigma * effectiveSigma };
 
-  const paths = generatePaths(S, r, q, effectiveSigma, T, steps, reducedSims, useHeston, hp);
+  const paths = generatePaths(S, r, q, effectiveSigma, T, steps, reducedSims);
   const discount = Math.exp(-r * T);
 
   if (optionStyle === "american") {

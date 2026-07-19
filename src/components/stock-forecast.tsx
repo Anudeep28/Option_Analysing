@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Minus, LineChart, Newspaper, Activity } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, LineChart, Newspaper, Activity, Briefcase } from "lucide-react";
 import { forecastStockMovement } from "@/lib/trade-decision";
 
 interface StockForecastProps {
@@ -31,6 +33,9 @@ export function StockForecast({
     [spotPrice, volatility, days, riskFreeRate, dividendYield, sentimentScore, technicalScore],
   );
 
+  const [avgBuyPrice, setAvgBuyPrice] = useState<number | "">("");
+  const [quantity, setQuantity] = useState<number | "">("");
+
   const biasStyle =
     f.bias === "bullish" ? "text-emerald-600 dark:text-emerald-400"
     : f.bias === "bearish" ? "text-red-600 dark:text-red-400"
@@ -38,6 +43,32 @@ export function StockForecast({
   const BiasIcon = f.bias === "bullish" ? TrendingUp : f.bias === "bearish" ? TrendingDown : Minus;
 
   const fmt = (n: number) => `${currency}${n.toLocaleString(undefined, { maximumFractionDigits: n > 1000 ? 0 : 2 })}`;
+
+  const hasHolding = typeof avgBuyPrice === "number" && avgBuyPrice > 0
+    && typeof quantity === "number" && quantity > 0;
+  const costBasis = hasHolding ? avgBuyPrice * quantity : 0;
+  const currentValue = hasHolding ? spotPrice * quantity : 0;
+  const pnl = currentValue - costBasis;
+  const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
+
+  let recommendation: "HOLD" | "SELL" | null = null;
+  let recReason = "";
+  if (hasHolding) {
+    if (f.bias === "bearish" && f.biasStrength > 30) {
+      recommendation = "SELL";
+      recReason = pnl >= 0
+        ? `Forecast is bearish (${f.biasStrength.toFixed(0)}% conviction) with only ${(f.probUp * 100).toFixed(0)}% chance of upside. Consider taking your +${pnlPct.toFixed(1)}% profit.`
+        : `Forecast is bearish (${f.biasStrength.toFixed(0)}% conviction) with only ${(f.probUp * 100).toFixed(0)}% chance of recovery. Consider cutting the -${Math.abs(pnlPct).toFixed(1)}% loss.`;
+    } else if (f.bias === "bullish" && f.biasStrength > 30) {
+      recommendation = "HOLD";
+      recReason = pnl >= 0
+        ? `Forecast is bullish (${f.biasStrength.toFixed(0)}% conviction, ${(f.probUp * 100).toFixed(0)}% prob. up). Let winners run — expected price is ${fmt(f.expectedPrice)}.`
+        : `Forecast is bullish (${f.biasStrength.toFixed(0)}% conviction, ${(f.probUp * 100).toFixed(1)}% prob. up). Hold for recovery toward expected price ${fmt(f.expectedPrice)}.`;
+    } else {
+      recommendation = "HOLD";
+      recReason = `No strong directional edge (${f.bias} at ${f.biasStrength.toFixed(0)}% conviction). Avoid churning; hold and reassess.`;
+    }
+  }
 
   // position of expected price within 2-sigma band (for the bar marker)
   const range = f.twoSigmaHigh - f.twoSigmaLow;
@@ -55,6 +86,9 @@ export function StockForecast({
         <CardDescription>
           Where the underlying is likely to be in {days} day{days > 1 ? "s" : ""} (log-normal model + sentiment)
         </CardDescription>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Real-world directional forecast. Option pricing above uses the risk-neutral drift (r − q) regardless of these signals.
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Signal sources powering the forecast */}
@@ -141,6 +175,76 @@ export function StockForecast({
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>Typical daily move: ±{f.dailySigmaPct.toFixed(2)}%</span>
           <span>Over {days}d: ±{f.horizonSigmaPct.toFixed(2)}%</span>
+        </div>
+
+        {/* Existing stock holding decision */}
+        <div className="rounded-lg border p-3 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Briefcase className="size-4" />
+            Already Own This Stock?
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Avg Buy Price ({currency})</Label>
+              <Input
+                type="number" step="any" min={0}
+                placeholder="e.g. 18000"
+                value={avgBuyPrice}
+                onChange={(e) => setAvgBuyPrice(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Quantity Owned</Label>
+              <Input
+                type="number" min={1} step="1"
+                placeholder="e.g. 50"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value === "" ? "" : parseInt(e.target.value) || 0)}
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+
+          {hasHolding && recommendation && (
+            <div className={`rounded-lg border-2 p-3 space-y-2 ${recommendation === "SELL" ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950" : "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950"}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {recommendation === "SELL" ? (
+                    <TrendingDown className={`size-5 ${recommendation === "SELL" ? "text-red-600 dark:text-red-400" : ""}`} />
+                  ) : (
+                    <TrendingUp className="size-5 text-emerald-600 dark:text-emerald-400" />
+                  )}
+                  <span className={`text-lg font-bold ${recommendation === "SELL" ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+                    {recommendation}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <div className={`text-xl font-bold font-mono ${pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                    {pnl >= 0 ? "+" : ""}{currency}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">unrealized P&L</div>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">{recReason}</p>
+              <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="rounded border bg-background/60 p-2">
+                  <div className="text-muted-foreground">Cost Basis</div>
+                  <div className="font-mono font-semibold">{currency}{costBasis.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+                </div>
+                <div className="rounded border bg-background/60 p-2">
+                  <div className="text-muted-foreground">Current Value</div>
+                  <div className="font-mono font-semibold">{currency}{currentValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!hasHolding && (
+            <p className="text-xs text-muted-foreground italic">
+              Enter your average buy price and quantity to get a sell/hold recommendation for this stock.
+            </p>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,14 +29,17 @@ import {
   ALL_PRESETS, INDIAN_MARKET_PRESETS, GLOBAL_PRESETS,
   fetchLiveData, fetchNSEOptionChain, fetchNewsSentiment,
   getCurrencySymbol, getLotSize, isIndianSymbol, TRADE_DURATIONS,
+  daysToYears, getDefaultDayCount,
   type YahooQuote, type YahooHistorical, type NSEOptionChainResponse, type NewsSentimentResult,
 } from "@/lib/market-data";
+import type { DayCountConvention } from "@/lib/types";
+import { impliedVolatility } from "@/lib/pricing/black-scholes";
 import { ResultsPanel } from "./results-panel";
 import { TradeDecision } from "./trade-decision";
 import { StockForecast } from "./stock-forecast";
 import { MacroImpactPanel } from "./macro-impact";
 import { computeTechnicals } from "@/lib/technicals";
-import { computeGARCHVol } from "@/lib/vol-surface";
+import { computeGARCHVol, buildSmileFromChain, calibrateSVI, sviImpliedVol, computeSkewMetrics } from "@/lib/vol-surface";
 import type { MacroImpactResult } from "@/lib/macro-impact";
 
 const OPTION_STYLES: { value: OptionStyle; label: string; description: string }[] = [
@@ -115,8 +118,43 @@ export function PricingForm() {
   const [lotSize, setLotSize] = useState(1);
   const [selectedDuration, setSelectedDuration] = useState<string>("");
 
+  // Day-count convention: ACT/365 for India, ACT/360 for global
+  const [dayCountConvention, setDayCountConvention] = useState<DayCountConvention>(getDefaultDayCount(selectedSymbol));
+
   // Derived currency
   const currency = getCurrencySymbol(selectedSymbol);
+
+  // Implied volatility from market LTP (computed, not directly editable)
+  const impliedVol = useMemo(() => {
+    if (!marketLTP || marketLTP <= 0 || spotPrice <= 0 || strikePrice <= 0 || timeToExpiry <= 0) return null;
+    return impliedVolatility(marketLTP, {
+      spotPrice,
+      strikePrice,
+      riskFreeRate: riskFreeRate / 100,
+      timeToExpiry: daysToYears(timeToExpiry, dayCountConvention),
+      dividendYield: dividendYield / 100,
+    }, optionType);
+  }, [marketLTP, spotPrice, strikePrice, riskFreeRate, timeToExpiry, dividendYield, optionType, dayCountConvention]);
+
+  // Implied volatility surface from option chain data (SVI fit)
+  const { surfaceIV, skewMetrics } = useMemo(() => {
+    if (!optionChain?.data?.length || spotPrice <= 0 || strikePrice <= 0 || timeToExpiry <= 0) {
+      return { surfaceIV: null as number | null, skewMetrics: null };
+    }
+    const T = daysToYears(timeToExpiry, dayCountConvention);
+    const smile = buildSmileFromChain(
+      optionChain.data,
+      spotPrice,
+      riskFreeRate / 100,
+      dividendYield / 100,
+      T,
+    );
+    if (smile.length < 3) return { surfaceIV: null, skewMetrics: null };
+    const svi = calibrateSVI(smile, T);
+    const surfaceIV = sviImpliedVol(strikePrice, spotPrice * Math.exp((riskFreeRate / 100 - dividendYield / 100) * T), T, svi);
+    const skewMetrics = computeSkewMetrics(svi, spotPrice, T, riskFreeRate / 100, dividendYield / 100);
+    return { surfaceIV, skewMetrics };
+  }, [optionChain, spotPrice, strikePrice, riskFreeRate, dividendYield, timeToExpiry, dayCountConvention]);
 
   // Derived technicals from historical closes
   const technicals = liveHistorical?.closes && liveHistorical.closes.length >= 50
@@ -156,10 +194,11 @@ export function PricingForm() {
     } else {
       setRiskFreeRate(5.25); // US Fed funds proxy
     }
+    setDayCountConvention(getDefaultDayCount(symbol));
     if (optionStyle === "barrier") {
       setBarrierLevel(Math.round(preset.spotPrice * 1.2));
     }
-  }, [optionStyle]);
+  }, [optionStyle, dayCountConvention, garchVol]);
 
   const handleFetchLive = useCallback(async () => {
     if (!selectedSymbol) return;
@@ -271,7 +310,7 @@ export function PricingForm() {
             strikePrice,
             riskFreeRate: riskFreeRate / 100,
             volatility: volatility / 100,
-            timeToExpiry: timeToExpiry / 365,
+            timeToExpiry: daysToYears(timeToExpiry, dayCountConvention),
             dividendYield: dividendYield / 100,
           },
           simulation: {
@@ -319,6 +358,7 @@ export function PricingForm() {
           sentimentActive={!!sentimentData}
           technicalsActive={!!(liveHistorical?.closes && liveHistorical.closes.length >= 50)}
           optionChainData={optionChain?.data}
+          theoreticalPrice={result?.price}
         />
         <StockForecast
           spotPrice={spotPrice}
@@ -730,6 +770,9 @@ export function PricingForm() {
                   {volSource === "historical" && (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">HVol</Badge>
                   )}
+                  {volSource === "manual" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">Manual</Badge>
+                  )}
                   <span className="text-sm font-mono text-muted-foreground">{volatility.toFixed(1)}%</span>
                 </div>
               </div>
@@ -738,6 +781,61 @@ export function PricingForm() {
                 onValueChange={(v) => { setVolatility(sliderVal(v)); setVolSource("manual"); setGarchVol(undefined); }}
                 min={1} max={150} step={0.5}
               />
+              {impliedVol !== null && (
+                <div className="flex items-center justify-between rounded-md border border-dashed p-2 text-xs">
+                  <span className="text-muted-foreground">
+                    IV implied by Market LTP: <span className="font-mono font-medium">{(impliedVol * 100).toFixed(1)}%</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2"
+                    onClick={() => { setVolatility(impliedVol * 100); setVolSource("manual"); }}
+                  >
+                    Use this IV
+                  </Button>
+                </div>
+              )}
+              {surfaceIV !== null && (
+                <div className="flex items-center justify-between rounded-md border border-dashed border-purple-200 dark:border-purple-900 p-2 text-xs">
+                  <div className="text-muted-foreground">
+                    IV from option-chain surface: <span className="font-mono font-medium text-purple-700 dark:text-purple-300">{(surfaceIV * 100).toFixed(1)}%</span>
+                    {skewMetrics && (
+                      <span className="ml-2 text-[10px]">
+                        ATM {(skewMetrics.atmIV * 100).toFixed(1)}% · 25Δ RR {(skewMetrics.skew25d * 100).toFixed(1)}pp
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2 border-purple-200 dark:border-purple-900"
+                    onClick={() => { setVolatility(surfaceIV * 100); setVolSource("manual"); }}
+                  >
+                    Use surface IV
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Day-Count Convention */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Day-Count Convention</Label>
+                <span className="text-xs text-muted-foreground">Used to convert days → years</span>
+              </div>
+              <Select value={dayCountConvention} onValueChange={(v) => setDayCountConvention(v as DayCountConvention)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="act/365">ACT/365 (India/NSE default)</SelectItem>
+                  <SelectItem value="act/360">ACT/360 (US/EUR typical)</SelectItem>
+                  <SelectItem value="30/360">30/360 (bonds)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Risk-Free Rate Slider */}
@@ -797,7 +895,7 @@ export function PricingForm() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-sm">Time to Expiry</Label>
-                <span className="text-sm font-mono text-muted-foreground">{timeToExpiry} days ({(timeToExpiry / 365).toFixed(3)} yrs)</span>
+                <span className="text-sm font-mono text-muted-foreground">{timeToExpiry} days ({daysToYears(timeToExpiry, dayCountConvention).toFixed(4)} yrs, {dayCountConvention})</span>
               </div>
               <Slider
                 value={[timeToExpiry]}
@@ -963,7 +1061,7 @@ export function PricingForm() {
           spotPrice={spotPrice}
           strikePrice={strikePrice}
           volatility={volatility / 100}
-          timeToExpiry={timeToExpiry / 365}
+          timeToExpiry={daysToYears(timeToExpiry, dayCountConvention)}
           riskFreeRate={riskFreeRate / 100}
           dividendYield={dividendYield / 100}
           sentimentScore={sentimentScore}

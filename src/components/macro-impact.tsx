@@ -32,18 +32,6 @@ function eventLabel(type: MacroEvent["type"]): string {
   return map[type] ?? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function SeverityBadge({ severity }: { severity: MacroEvent["severity"] }) {
-  const cls =
-    severity === "high"   ? "bg-red-100 text-red-700 border-red-300 dark:bg-red-950 dark:text-red-300" :
-    severity === "medium" ? "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300" :
-                            "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
-      {severity}
-    </span>
-  );
-}
-
 function DirectionBadge({ direction, score }: { direction: MacroImpactResult["macroSignal"]; score: number }) {
   if (direction === "bullish") return (
     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 text-sm font-bold">
@@ -318,11 +306,11 @@ export function MacroImpactPanel({ data, symbol, isLoading }: MacroImpactPanelPr
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Globe className="size-4 animate-pulse text-muted-foreground" />
-            Global Macro Impact
+            Live News Impact
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground animate-pulse">Scanning global macro headlines…</p>
+          <p className="text-sm text-muted-foreground animate-pulse">Scanning global, India, and company news…</p>
         </CardContent>
       </Card>
     );
@@ -335,18 +323,18 @@ export function MacroImpactPanel({ data, symbol, isLoading }: MacroImpactPanelPr
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Globe className="size-4" />
-          Global Macro Impact
+          Live News Impact
           {symbol && <Badge variant="outline" className="text-xs">{symbol}</Badge>}
         </CardTitle>
         <CardDescription>
-          Macro news analysed through Charlie Munger&apos;s latticework of mental models for this stock.
+          Live global, India, and company news analysed through Charlie Munger&apos;s latticework for this stock.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {!primaryEvent || primaryEvent.type === "none" ? (
+        {!primaryEvent ? (
           <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-            No significant macro events detected in recent headlines.
+            Live news analysis is currently unavailable.
           </div>
         ) : (
           <>
@@ -355,11 +343,11 @@ export function MacroImpactPanel({ data, symbol, isLoading }: MacroImpactPanelPr
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold">{eventLabel(primaryEvent.type)}</span>
-                    <SeverityBadge severity={primaryEvent.severity} />
+                    <span className="text-sm font-semibold">News-driven price impact</span>
+                    <Badge variant="outline" className="text-[10px]">Live synthesis</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground italic max-w-md">
-                    &ldquo;{primaryEvent.headline}&rdquo;
+                    Global market, India market, and {symbol ?? "company"}-specific headlines are analysed together.
                   </p>
                 </div>
                 <DirectionBadge direction={macroSignal} score={macroScore} />
@@ -452,7 +440,7 @@ export function MacroImpactPanel({ data, symbol, isLoading }: MacroImpactPanelPr
             {topEvents.length > 1 && (
               <div className="space-y-2">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wide font-medium">
-                  Top 3 global drivers
+                  Additional news drivers
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {topEvents.map((te) => (
@@ -485,8 +473,7 @@ export function MacroImpactPanel({ data, symbol, isLoading }: MacroImpactPanelPr
             <div className="flex items-start gap-2 rounded bg-muted/40 border px-3 py-2 text-[11px] text-muted-foreground">
               <AlertTriangle className="size-3 mt-0.5 shrink-0" />
               <span>
-                Macro impact is rule-based and directional — it shows the likely second-order transmission
-                channel, not a precise price forecast. Severity and timing depend on how events evolve.
+                News impact is AI-generated from current global, India, and company headlines. It is directional analysis, not a precise price forecast.
               </span>
             </div>
           </>

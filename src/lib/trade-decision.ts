@@ -1,5 +1,5 @@
 import { normalCDF } from "./math";
-import { blackScholesPrice, blackScholesGreeks } from "./pricing/black-scholes";
+import { blackScholesPrice, impliedVolatility } from "./pricing/black-scholes";
 import type { MarketData, OptionType } from "./types";
 
 // Position direction relative to the option
@@ -110,42 +110,6 @@ export function findSpotForPremium(
     } else {
       if (pMid < targetPremium) hi = mid; else lo = mid;
     }
-  }
-  return (lo + hi) / 2;
-}
-
-/**
- * Solve for the implied volatility that makes the Black-Scholes price equal
- * `premium`, given spot/strike/time/rates. Bisection over [1%, 500%].
- * Returns null if the premium is outside arbitrage bounds (not solvable).
- */
-export function impliedVolatility(
-  premium: number,
-  base: Omit<MarketData, "volatility">,
-  optionType: OptionType,
-): number | null {
-  if (premium <= 0 || base.timeToExpiry <= 0) return null;
-
-  // Intrinsic value floor — premium below intrinsic is not solvable
-  const intrinsic = optionType === "call"
-    ? Math.max(base.spotPrice - base.strikePrice, 0)
-    : Math.max(base.strikePrice - base.spotPrice, 0);
-  if (premium < intrinsic) return null;
-
-  const priceAt = (sigma: number) =>
-    blackScholesPrice({ ...base, volatility: sigma }, optionType);
-
-  let lo = 0.01;
-  let hi = 5.0;
-  // Ensure the target premium is bracketed
-  if (premium > priceAt(hi)) return null;
-  if (premium < priceAt(lo)) return null;
-
-  for (let i = 0; i < 100; i++) {
-    const mid = (lo + hi) / 2;
-    const diff = priceAt(mid) - premium;
-    if (Math.abs(diff) < 0.001) return mid;
-    if (diff < 0) lo = mid; else hi = mid;
   }
   return (lo + hi) / 2;
 }

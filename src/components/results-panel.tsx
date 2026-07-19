@@ -18,10 +18,11 @@ import { IVAnalysisPanel } from "./iv-analysis";
 import { OIAnalysisPanel } from "./oi-analysis";
 import { TechnicalAnalysisPanel } from "./technical-analysis";
 import { StrategyBuilder } from "./strategy-builder";
-import { PositionTracker } from "./position-tracker";
 import { ScenarioLadder } from "./scenario-ladder";
 import { GARCHVolForecast } from "./garch-vol-forecast";
 import { StockOutlook } from "./stock-outlook";
+import { Superforecaster } from "./superforecaster";
+import { StockMCForecast } from "./stock-mc-forecast";
 import type { TechnicalIndicators } from "@/lib/technicals";
 import type { MacroImpactResult } from "@/lib/macro-impact";
 
@@ -226,16 +227,6 @@ export function ResultsPanel({
 
         {/* ── Tab 1: Decision ── */}
         <TabsContent value="decision" className="mt-4 space-y-4">
-          <PositionTracker
-            theoreticalPrice={result.price}
-            optionType={optionType}
-            spotPrice={spotPrice}
-            strikePrice={strikePrice}
-            currency={currency}
-            lotSize={lotSize}
-            marketLTP={marketLTP}
-            symbol={symbol}
-          />
           <TradeAnalysis
             result={result}
             optionType={optionType}
@@ -276,6 +267,22 @@ export function ResultsPanel({
         {/* ── Tab 3: Stock View ── */}
         <TabsContent value="stock" className="mt-4 space-y-4">
           {spotPrice > 0 && (historicalVol ?? 0) > 0 && (
+            <StockMCForecast
+              spotPrice={spotPrice}
+              annualVol={historicalVol ?? volatility}
+              garchVol={garchVol}
+              riskFreeRate={riskFreeRate}
+              dividendYield={dividendYield}
+              horizonDays={Math.round(timeToExpiry * 365)}
+              currency={currency}
+              symbol={symbol}
+              sentimentScore={sentimentScore}
+              technicalScore={technicals?.overallScore}
+              macroScore={macroScore}
+              macroData={macroData}
+            />
+          )}
+          {spotPrice > 0 && (historicalVol ?? 0) > 0 && (
             <StockOutlook
               spotPrice={spotPrice}
               garchVol={garchVol ?? null}
@@ -288,6 +295,20 @@ export function ResultsPanel({
               currency={currency}
               symbol={symbol}
               macroScore={macroScore}
+            />
+          )}
+          {historicalCloses && historicalCloses.length >= 30 && spotPrice > 0 && (
+            <Superforecaster
+              closes={historicalCloses}
+              spotPrice={spotPrice}
+              technicals={technicals ?? null}
+              garchVol={garchVol ?? null}
+              historicalVol={historicalVol ?? volatility}
+              sentimentScore={sentimentScore}
+              macroScore={macroScore}
+              vixLevel={vixLevel}
+              symbol={symbol}
+              currency={currency}
             />
           )}
           {historicalCloses && historicalCloses.length >= 50 && (

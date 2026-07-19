@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { TrendingUp, TrendingDown, CheckCircle2, XCircle, AlertTriangle, Target, Scale, Newspaper, Activity } from "lucide-react";
+import { TrendingUp, TrendingDown, CheckCircle2, XCircle, AlertTriangle, Target, Scale, Newspaper, Activity, Briefcase } from "lucide-react";
 import type { OptionType } from "@/lib/types";
 import { evaluateTrade, inferSide, type Verdict } from "@/lib/trade-decision";
 
@@ -25,6 +25,7 @@ interface TradeDecisionProps {
   sentimentActive?: boolean; // true if news sentiment was fetched
   technicalsActive?: boolean;// true if historical data is loaded for technicals
   optionChainData?: { strikePrice: number; callLTP: number; putLTP: number; callIV: number; putIV: number }[];
+  theoreticalPrice?: number;
 }
 
 const VERDICT_STYLES: Record<Verdict, { color: string; bg: string; icon: typeof CheckCircle2; label: string }> = {
@@ -38,7 +39,7 @@ const VERDICT_STYLES: Record<Verdict, { color: string; bg: string; icon: typeof 
 export function TradeDecision({
   spotPrice, volatility, riskFreeRate, dividendYield, currency,
   defaultStrike, defaultLotSize, symbol, isLiveData, sentimentScore, technicalScore,
-  sentimentActive, technicalsActive, optionChainData,
+  sentimentActive, technicalsActive, optionChainData, theoreticalPrice,
 }: TradeDecisionProps) {
   const [optionType, setOptionType] = useState<OptionType>("call");
   const [strike, setStrike] = useState<number | "">(defaultStrike || "");
@@ -77,7 +78,6 @@ export function TradeDecision({
       sentimentScore,
       technicalScore,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, optionType, spotPrice, strike, entry, target, stopLoss, lotSize, lots,
       volatility, marketIV, daysToExpiry, holdingDays, riskFreeRate, dividendYield, sentimentScore, technicalScore]);
 
@@ -391,9 +391,99 @@ export function TradeDecision({
 
             <Separator />
             <p className="text-[10px] text-muted-foreground italic">
-              Estimates use Black-Scholes pricing, your inputs, and current volatility/sentiment.
+              Estimates use risk-neutral Black-Scholes pricing (drift = r − q) for fair-value and ITM probabilities.
+              Target-hit probabilities blend in sentiment/technical bias as a real-world forecast only.
               Not financial advice — markets can move unexpectedly. Always use a stop-loss.
             </p>
+
+            {/* ── P&L Tracker (merged from Demat Position Tracker) ── */}
+            {(() => {
+              const currentPremium = theoreticalPrice ?? 0;
+              const entryNum = num(entry);
+              const hasEntry = typeof entry === "number" && entry > 0;
+              const totalQty = lotSize * lots;
+              const pnlPerUnit = currentPremium - entryNum;
+              const totalPnL = pnlPerUnit * totalQty;
+              const pnlPct = entryNum > 0 ? (pnlPerUnit / entryNum) * 100 : 0;
+              const totalInvestment = entryNum * totalQty;
+              const intrinsic = optionType === "call"
+                ? Math.max(spotPrice - num(strike), 0)
+                : Math.max(num(strike) - spotPrice, 0);
+              const timeVal = currentPremium - intrinsic;
+              const breakeven = optionType === "call"
+                ? num(strike) + entryNum
+                : num(strike) - entryNum;
+              const breakevenDist = spotPrice > 0 ? ((breakeven - spotPrice) / spotPrice) * 100 : 0;
+
+              if (!hasEntry || !theoreticalPrice) return null;
+
+              return (
+                <>
+                  <Separator />
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Briefcase className="size-4" /> Position P&amp;L
+                    <span className="text-xs text-muted-foreground font-normal">(based on current theoretical price)</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">P&amp;L per Unit</div>
+                      <div className={`text-lg font-bold font-mono ${pnlPerUnit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                        {pnlPerUnit >= 0 ? "+" : ""}{currency}{pnlPerUnit.toFixed(2)}
+                      </div>
+                      <div className={`text-xs font-mono ${pnlPct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                      </div>
+                    </div>
+                    <div className={`rounded-lg border p-3 ${totalPnL >= 0 ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950" : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950"}`}>
+                      <div className="text-xs text-muted-foreground">Total P&amp;L ({lots} lot{lots > 1 ? "s" : ""} × {lotSize})</div>
+                      <div className={`text-xl font-bold font-mono ${totalPnL >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                        {totalPnL >= 0 ? "+" : ""}{currency}{totalPnL.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="rounded border bg-muted/30 p-2">
+                      <div className="text-muted-foreground">Investment</div>
+                      <div className="font-mono font-semibold">{currency}{totalInvestment.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                    </div>
+                    <div className="rounded border bg-muted/30 p-2">
+                      <div className="text-muted-foreground">Breakeven (Spot)</div>
+                      <div className="font-mono font-semibold">{currency}{breakeven.toFixed(2)}</div>
+                      <div className="text-[10px] text-muted-foreground">{breakevenDist >= 0 ? "+" : ""}{breakevenDist.toFixed(1)}% from spot</div>
+                    </div>
+                    <div className="rounded border bg-muted/30 p-2">
+                      <div className="text-muted-foreground">Time Value</div>
+                      <div className="font-mono font-semibold">{timeVal >= 0 ? `${currency}${timeVal.toFixed(2)}` : "0.00"}</div>
+                      <div className="text-[10px] text-muted-foreground">in current premium</div>
+                    </div>
+                  </div>
+
+                  <div className="text-xs">
+                    <div className="font-medium mb-1 text-muted-foreground">P&amp;L at Different Spot Levels (at expiry)</div>
+                    <div className="grid grid-cols-5 gap-1">
+                      {[-5, -2, 0, 2, 5].map((pct) => {
+                        const futureSpot = spotPrice * (1 + pct / 100);
+                        const futureIntrinsic = optionType === "call"
+                          ? Math.max(futureSpot - num(strike), 0)
+                          : Math.max(num(strike) - futureSpot, 0);
+                        const futurePayoff = (futureIntrinsic - entryNum) * totalQty;
+                        return (
+                          <div key={pct} className="rounded bg-muted/30 p-1.5 text-center">
+                            <div className="text-[10px] text-muted-foreground">{pct >= 0 ? "+" : ""}{pct}%</div>
+                            <div className="font-mono text-[10px]">{currency}{futureSpot.toFixed(0)}</div>
+                            <div className={`font-mono font-semibold ${futurePayoff >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                              {futurePayoff >= 0 ? "+" : ""}{currency}{futurePayoff.toFixed(0)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </>
         )}
 

@@ -1,12 +1,6 @@
 import { NextRequest } from "next/server";
-import {
-  computeMacroImpact, computeLatticework, getSector, SECTOR_LABELS,
-  EVENT_DESCRIPTIONS, type MacroImpactResult, type MacroEventType,
-} from "@/lib/macro-impact";
-import {
-  computeLatticeworkWithLLM, enhanceMacroWithLLM,
-  type LLMLatticeworkInput, type LLMMacroInput,
-} from "@/lib/llm";
+import { getSector, SECTOR_LABELS, type MacroImpactResult } from "@/lib/macro-impact";
+import { computeLatticeworkWithLLM, type LLMLatticeworkInput } from "@/lib/llm";
 
 function parseRSSItems(xml: string): { title: string; pubDate: string }[] {
   const items: { title: string; pubDate: string }[] = [];
@@ -22,112 +16,95 @@ function parseRSSItems(xml: string): { title: string; pubDate: string }[] {
   return items;
 }
 
-const MACRO_QUERIES = [
-  "global markets oil price war geopolitical",
-  "US Federal Reserve interest rate economy",
-  "Iran conflict crude oil sanctions",
-  "global recession inflation central bank",
-  "China economy slowdown GDP",
-];
+type NewsScope = "Global" | "India" | "Company";
 
 export async function GET(request: NextRequest) {
   const symbol = request.nextUrl.searchParams.get("symbol") ?? "NIFTY";
   const spotPrice = parseFloat(request.nextUrl.searchParams.get("spot") ?? "0") || undefined;
 
   try {
-    const query1 = MACRO_QUERIES[Math.floor(Math.random() * 3)];
-    const query2 = "stock market economy India global";
-
-    const fetchRSS = async (q: string) => {
-      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-IN&gl=IN&ceid=IN:en`;
+    const fetchRSS = async (query: string, scope: NewsScope, locale: "IN" | "US") => {
+      const isIndia = locale === "IN";
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-${locale}&gl=${locale}&ceid=${locale}:en`;
       const res = await fetch(url, {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-        next: { revalidate: 600 },
+        next: { revalidate: 300 },
       });
       if (!res.ok) return [];
-      return parseRSSItems(await res.text()).slice(0, 15);
+      return parseRSSItems(await res.text())
+        .slice(0, isIndia ? 10 : 8)
+        .map((item) => ({ ...item, scope }));
     };
 
-    const [items1, items2] = await Promise.all([fetchRSS(query1), fetchRSS(query2)]);
-    const allItems = [...items1, ...items2];
+    const [globalItems, indiaItems, companyItems] = await Promise.all([
+      fetchRSS("top market moving global business news", "Global", "US"),
+      fetchRSS("top India stock market economy business news", "India", "IN"),
+      fetchRSS(`${symbol} stock company news`, "Company", "IN"),
+    ]);
+    const seen = new Set<string>();
+    const headlines = [...globalItems, ...indiaItems, ...companyItems]
+      .filter((item) => {
+        const key = item.title.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((item) => `[${item.scope}] ${item.title}`);
 
-    if (allItems.length === 0) {
+    if (headlines.length === 0) {
       return Response.json({
         events: [], primaryEvent: null, topEvents: [], latticework: null,
         sectorImpact: { direction: "neutral", score: 0, reason: "No headlines fetched", chain: "—" },
         macroScore: 0, macroSignal: "neutral",
-        summary: "No macro headlines available.",
+        summary: "No live global, India, or company headlines are available.",
       } satisfies MacroImpactResult);
     }
 
-    // Run the rule-based engine to classify events and determine the primary event type.
-    // We use computeMacroImpact for event detection, ranking, and aggregation logic —
-    // then replace the primary event's latticework with a fully LLM-reasoned one.
-    const result = computeMacroImpact(allItems, symbol);
     const sector = getSector(symbol);
-    const headlines = allItems.map((i) => i.title);
+    const latticeworkInput: LLMLatticeworkInput = {
+      symbol,
+      sector: SECTOR_LABELS[sector],
+      spotPrice,
+      headlines,
+      eventName: "Live global, India, and company news synthesis",
+      eventChannel: "Assess the combined direct, second-order, and market-expectation effects from the labelled live headlines; do not force them into predefined event categories.",
+    };
+    const latticework = await computeLatticeworkWithLLM(latticeworkInput);
 
-    // ── Primary event: ask DeepSeek to reason from scratch ──────────────────
-    const primaryEventImpact = result.topEvents[0];
-    if (primaryEventImpact) {
-      const eventDesc = EVENT_DESCRIPTIONS[primaryEventImpact.event.type as MacroEventType];
-      const llmLatticeworkInput: LLMLatticeworkInput = {
-        symbol,
-        sector: SECTOR_LABELS[sector],
-        spotPrice,
-        headlines,
-        eventName: eventDesc.name,
-        eventChannel: eventDesc.channel,
-      };
-
-      // Run LLM latticework + narrative enhancement in parallel.
-      // If LLM latticework fails, we keep the rule-based one already in result.
-      const [llmLatticework, llm] = await Promise.all([
-        computeLatticeworkWithLLM(llmLatticeworkInput),
-        enhanceMacroWithLLM({
-          symbol,
-          sector: SECTOR_LABELS[sector],
-          macroScore: result.macroScore,
-          macroSignal: result.macroSignal,
-          topEvents: result.topEvents.map((te) => ({
-            rank: te.rank,
-            type: te.event.type,
-            headline: te.event.headline,
-            severity: te.event.severity,
-            netScore: te.latticework.netScore,
-            direction: te.latticework.direction,
-            narrativeSummary: te.latticework.narrativeSummary,
-            transmissionChain: te.chain,
-          })),
-        } satisfies LLMMacroInput),
-      ]);
-
-      if (llmLatticework) {
-        // Replace the primary event's latticework (and the root latticework) with the LLM version
-        result.topEvents[0].latticework = llmLatticework;
-        result.latticework = llmLatticework;
-
-        // Recompute the aggregate macroScore now that the primary latticework has changed.
-        // Primary event gets 60% weight; secondary events share 40%.
-        const n = result.topEvents.length;
-        result.macroScore = Math.max(-100, Math.min(100,
-          result.topEvents.reduce((sum, te, idx) => {
-            const w = idx === 0 ? 0.6 : n > 1 ? 0.4 / (n - 1) : 0;
-            return sum + te.latticework.netScore * w;
-          }, 0),
-        ));
-        result.macroSignal = llmLatticework.direction;
-
-        // Secondary events (rank 2, 3) keep their rule-based latticeworks —
-        // those are lower-impact and calling LLM for each would add latency.
-      }
-
-      if (llm) {
-        return Response.json({ ...result, llm });
-      }
+    if (!latticework) {
+      return Response.json({
+        events: [], primaryEvent: null, topEvents: [], latticework: null,
+        sectorImpact: { direction: "neutral", score: 0, reason: "News analysis is unavailable.", chain: "—" },
+        macroScore: 0, macroSignal: "neutral",
+        summary: "Live news was fetched, but dynamic mental-model analysis is unavailable.",
+      } satisfies MacroImpactResult);
     }
 
-    return Response.json(result);
+    const event = {
+      type: "none" as const,
+      severity: "low" as const,
+      headline: `Live global, India, and ${symbol} news synthesis`,
+      detected: new Date().toISOString(),
+    };
+    const chain = "Global news → India market context → Company-specific developments → Price expectations";
+    const macroScore = latticework.netScore;
+    const macroSignal = latticework.direction;
+
+    return Response.json({
+      events: [event],
+      primaryEvent: event,
+      topEvents: [{ event, latticework, chain, rank: 1 }],
+      latticework,
+      sectorImpact: {
+        direction: macroSignal === "mixed" ? "neutral" : macroSignal,
+        score: macroScore,
+        reason: latticework.narrativeSummary,
+        chain,
+      },
+      macroScore,
+      macroSignal,
+      summary: latticework.narrativeSummary,
+    } satisfies MacroImpactResult);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to fetch macro news";
     return Response.json({ error: msg }, { status: 502 });

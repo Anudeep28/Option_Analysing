@@ -1,4 +1,16 @@
-import type { AssetPreset } from "./types";
+import type { AssetPreset, DayCountConvention } from "./types";
+
+export function daysToYears(days: number, convention: DayCountConvention = "act/365"): number {
+  switch (convention) {
+    case "act/365": return days / 365;
+    case "act/360": return days / 360;
+    case "30/360": return days / 360; // simplified: treats each month as 30 days
+  }
+}
+
+export function getDefaultDayCount(symbol: string | null): DayCountConvention {
+  return isIndianSymbol(symbol) ? "act/365" : "act/360";
+}
 
 // Indian market presets with representative data
 // Future integration: NSE India API, BSE StAR MF, Yahoo Finance (India)
