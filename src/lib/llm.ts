@@ -126,7 +126,10 @@ Respond ONLY with this JSON (no extra text):
 
     const json = await res.json();
     const content = json.choices?.[0]?.message?.content as string | undefined;
-    if (!content) return null;
+    if (!content) {
+      console.warn("DeepSeek latticework returned empty content");
+      return null;
+    }
 
     const parsed = JSON.parse(content) as {
       layers: Array<{
@@ -140,12 +143,19 @@ Respond ONLY with this JSON (no extra text):
       durationOutlook: string;
     };
 
-    if (!parsed.layers || parsed.layers.length !== 9) return null;
+    if (!parsed.layers || parsed.layers.length !== 9) {
+      console.warn("DeepSeek latticework layers invalid:", parsed.layers?.length);
+      return null;
+    }
     const expectedModels = [
       "mechanics", "incentives", "feedback_loop", "competitive", "mean_reversion",
       "inversion", "fiscal_policy", "liquidity_flows", "rural_demand",
     ];
-    if (!expectedModels.every((m) => parsed.layers.some((l) => l.model === m))) return null;
+    const missingModels = expectedModels.filter((m) => !parsed.layers.some((l) => l.model === m));
+    if (missingModels.length > 0) {
+      console.warn("DeepSeek latticework missing models:", missingModels);
+      return null;
+    }
 
     const layers: MentalModelLayer[] = parsed.layers.map((l) => ({
       model: l.model as MentalModelLayer["model"],
@@ -184,7 +194,8 @@ Respond ONLY with this JSON (no extra text):
       durationOutlook: parsed.durationOutlook ?? "",
     };
   } catch (e) {
-    console.warn("DeepSeek latticework LLM error:", e);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("DeepSeek latticework LLM error:", msg);
     return null;
   }
 }

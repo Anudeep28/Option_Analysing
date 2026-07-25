@@ -41,6 +41,11 @@ export async function GET(request: NextRequest) {
       fetchRSS("top India stock market economy business news", "India", "IN"),
       fetchRSS(`${symbol} stock company news`, "Company", "IN"),
     ]);
+    console.warn("Macro headlines fetched:", {
+      global: globalItems.length,
+      india: indiaItems.length,
+      company: companyItems.length,
+    });
     const seen = new Set<string>();
     const headlines = [...globalItems, ...indiaItems, ...companyItems]
       .filter((item) => {
@@ -72,6 +77,7 @@ export async function GET(request: NextRequest) {
     const latticework = await computeLatticeworkWithLLM(latticeworkInput);
 
     if (!latticework) {
+      console.warn("computeLatticeworkWithLLM returned null for", symbol);
       return Response.json({
         events: [], primaryEvent: null, topEvents: [], latticework: null,
         sectorImpact: { direction: "neutral", score: 0, reason: "News analysis is unavailable.", chain: "—" },
