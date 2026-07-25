@@ -1,0 +1,26 @@
+{
+  "packageId": "com.optionpricing.app",
+  "host": "REPLACE_WITH_YOUR_RAILWAY_CUSTOM_DOMAIN",
+  "name": "Option Pricing Simulator",
+  "shortName": "OptionPricing",
+  "startUrl": "/",
+  "display": "standalone",
+  "themeColor": "#000000",
+  "navigationColor": "#000000",
+  "backgroundColor": "#ffffff",
+  "enableNotifications": false,
+  "enableSiteSettingsShortcut": true,
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "splashScreenFadeOutDuration": 300
+}
