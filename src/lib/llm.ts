@@ -103,14 +103,14 @@ Respond ONLY with this JSON (no extra text):
 }`;
 
   try {
-    const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-v4-pro",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
         max_tokens: 1800,
@@ -119,7 +119,8 @@ Respond ONLY with this JSON (no extra text):
     });
 
     if (!res.ok) {
-      console.warn("DeepSeek latticework LLM failed:", res.status);
+      const err = await res.text();
+      console.warn("DeepSeek latticework LLM failed:", res.status, err);
       return null;
     }
 
@@ -261,14 +262,14 @@ Respond ONLY with this JSON (no extra text):
 }`;
 
   try {
-    const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-v4-pro",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.4,
         max_tokens: 700,
@@ -277,7 +278,8 @@ Respond ONLY with this JSON (no extra text):
     });
 
     if (!res.ok) {
-      console.warn("DeepSeek layer enhancement failed:", res.status);
+      const err = await res.text();
+      console.warn("DeepSeek layer enhancement failed:", res.status, err);
       return null;
     }
 
@@ -353,14 +355,14 @@ Respond ONLY in this JSON format:
 }`;
 
   try {
-    const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-v4-pro",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.7,
         max_tokens: 512,
@@ -384,7 +386,7 @@ Respond ONLY in this JSON format:
     return {
       summary: parsed.summary,
       inversionSignal: parsed.inversionSignal,
-      model: json.model ?? "deepseek-chat",
+      model: json.model ?? "deepseek-v4-pro",
     };
   } catch (e) {
     console.warn("DeepSeek macro enhancement error:", e);
