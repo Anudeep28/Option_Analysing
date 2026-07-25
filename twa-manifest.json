@@ -1,6 +1,6 @@
 {
   "packageId": "com.optionpricing.app",
-  "host": "REPLACE_WITH_YOUR_RAILWAY_CUSTOM_DOMAIN",
+  "host": "www.timevaluemoney.in",
   "name": "Option Pricing Simulator",
   "shortName": "OptionPricing",
   "startUrl": "/",
