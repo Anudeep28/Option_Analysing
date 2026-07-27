@@ -81,25 +81,27 @@ Also compute:
 - optionsImplication: one sentence on what this means for options IV and strategy on ${input.symbol}
 - durationOutlook: one sentence on how long this macro impact is likely to persist
 
-Respond ONLY with this JSON (no extra text):
+Return valid JSON only. Do not use placeholders, comments, Markdown fences, or pipe characters. Use numeric values for every score, weight, and netScore. The direction value must be exactly one of bullish, bearish, neutral, or mixed.
+
+Use this valid JSON structure:
 {
   "layers": [
-    { "model": "mechanics",      "label": "Mechanics (first-order effect)",             "score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "incentives",     "label": "Incentives (who wins / loses)",              "score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "feedback_loop",  "label": "Feedback loops (second-order amplification)","score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "competitive",    "label": "Competitive dynamics",                       "score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "mean_reversion", "label": "Mean reversion",                             "score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "inversion",      "label": "Inversion (contrarian signal)",              "score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "fiscal_policy",  "label": "Fiscal policy / Government response",        "score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "liquidity_flows","label": "Liquidity & capital flows",                  "score": <int>, "weight": <decimal>, "reasoning": "..." },
-    { "model": "rural_demand",   "label": "Rural demand / Monsoon linkage",             "score": <int>, "weight": <decimal>, "reasoning": "..." }
+    { "model": "mechanics", "label": "Mechanics (first-order effect)", "score": 0, "weight": 0.22, "reasoning": "Specific impact." },
+    { "model": "incentives", "label": "Incentives (who wins / loses)", "score": 0, "weight": 0.14, "reasoning": "Specific impact." },
+    { "model": "feedback_loop", "label": "Feedback loops (second-order amplification)", "score": 0, "weight": 0.14, "reasoning": "Specific impact." },
+    { "model": "competitive", "label": "Competitive dynamics", "score": 0, "weight": 0.10, "reasoning": "Specific impact." },
+    { "model": "mean_reversion", "label": "Mean reversion", "score": 0, "weight": 0.08, "reasoning": "Specific impact." },
+    { "model": "inversion", "label": "Inversion (contrarian signal)", "score": 0, "weight": 0.06, "reasoning": "Specific impact." },
+    { "model": "fiscal_policy", "label": "Fiscal policy / Government response", "score": 0, "weight": 0.10, "reasoning": "Specific impact." },
+    { "model": "liquidity_flows", "label": "Liquidity & capital flows", "score": 0, "weight": 0.10, "reasoning": "Specific impact." },
+    { "model": "rural_demand", "label": "Rural demand / Monsoon linkage", "score": 0, "weight": 0.06, "reasoning": "Specific impact." }
   ],
-  "netScore": <number>,
-  "direction": "bullish" | "bearish" | "neutral" | "mixed",
-  "narrativeSummary": "...",
-  "inversionSignal": "...",
-  "optionsImplication": "...",
-  "durationOutlook": "..."
+  "netScore": 0,
+  "direction": "neutral",
+  "narrativeSummary": "Investor-ready synthesis.",
+  "inversionSignal": "Contrarian case.",
+  "optionsImplication": "Options implication.",
+  "durationOutlook": "Expected duration."
 }`;
 
   try {
