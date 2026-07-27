@@ -116,6 +116,7 @@ Use this valid JSON structure:
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
         max_tokens: 1800,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
       }),
     });
@@ -129,7 +130,7 @@ Use this valid JSON structure:
     const json = await res.json();
     const content = json.choices?.[0]?.message?.content as string | undefined;
     if (!content) {
-      console.warn("DeepSeek latticework returned empty content");
+      console.warn("DeepSeek latticework returned empty content:", json.choices?.[0]?.finish_reason);
       return null;
     }
 
