@@ -287,6 +287,7 @@ Respond ONLY with this JSON (no extra text):
         messages: [{ role: "user", content: prompt }],
         temperature: 0.4,
         max_tokens: 700,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
       }),
     });
@@ -299,7 +300,10 @@ Respond ONLY with this JSON (no extra text):
 
     const json = await res.json();
     const content = json.choices?.[0]?.message?.content as string | undefined;
-    if (!content) return null;
+    if (!content) {
+      console.warn("DeepSeek layer enhancement returned empty content:", json.choices?.[0]?.finish_reason);
+      return null;
+    }
 
     const parsed = JSON.parse(content) as Partial<LLMLayerReasoning>;
     const required: (keyof LLMLayerReasoning)[] = [
@@ -380,6 +384,7 @@ Respond ONLY in this JSON format:
         messages: [{ role: "user", content: prompt }],
         temperature: 0.7,
         max_tokens: 512,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
       }),
     });
@@ -392,7 +397,10 @@ Respond ONLY in this JSON format:
 
     const json = await res.json();
     const content = json.choices?.[0]?.message?.content as string | undefined;
-    if (!content) return null;
+    if (!content) {
+      console.warn("DeepSeek macro enhancement returned empty content:", json.choices?.[0]?.finish_reason);
+      return null;
+    }
 
     const parsed = JSON.parse(content) as { summary?: string; inversionSignal?: string };
     if (!parsed.summary || !parsed.inversionSignal) return null;

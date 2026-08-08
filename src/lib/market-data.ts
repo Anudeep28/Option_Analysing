@@ -186,6 +186,21 @@ export async function fetchNewsSentiment(symbol: string): Promise<NewsSentimentR
   return res.json();
 }
 
+// --- Risk-Free Rate Benchmark ---
+
+export interface RiskFreeRateResult {
+  rate: number | null;
+  source: string | null;
+  live: boolean;
+  timestamp: string;
+}
+
+export async function fetchRiskFreeRate(market: "IN" | "US"): Promise<RiskFreeRateResult> {
+  const res = await fetch(`/api/market-data/riskfree?market=${market}`);
+  if (!res.ok) return { rate: null, source: null, live: false, timestamp: new Date().toISOString() };
+  return res.json();
+}
+
 // --- Currency & Lot Size ---
 
 const INDIAN_SYMBOLS = new Set(INDIAN_MARKET_PRESETS.map((p) => p.symbol));

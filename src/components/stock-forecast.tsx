@@ -18,19 +18,21 @@ interface StockForecastProps {
   symbol?: string;
   sentimentScore?: number;
   technicalScore?: number;
+  macroScore?: number;
   sentimentActive?: boolean;
   technicalsActive?: boolean;
+  macroActive?: boolean;
 }
 
 export function StockForecast({
   spotPrice, volatility, riskFreeRate, dividendYield, days, currency,
-  symbol, sentimentScore, technicalScore, sentimentActive, technicalsActive,
+  symbol, sentimentScore, technicalScore, macroScore, sentimentActive, technicalsActive, macroActive,
 }: StockForecastProps) {
   const f = useMemo(
     () => forecastStockMovement({
-      spotPrice, volatility, days, riskFreeRate, dividendYield, sentimentScore, technicalScore,
+      spotPrice, volatility, days, riskFreeRate, dividendYield, sentimentScore, technicalScore, macroScore,
     }),
-    [spotPrice, volatility, days, riskFreeRate, dividendYield, sentimentScore, technicalScore],
+    [spotPrice, volatility, days, riskFreeRate, dividendYield, sentimentScore, technicalScore, macroScore],
   );
 
   const [avgBuyPrice, setAvgBuyPrice] = useState<number | "">("");
@@ -113,6 +115,15 @@ export function StockForecast({
           ) : (
             <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground opacity-70">
               <TrendingUp className="size-3" /> Technicals: off
+            </Badge>
+          )}
+          {macroActive ? (
+            <Badge variant="outline" className="gap-1 text-[10px] border-emerald-300 text-emerald-700 dark:text-emerald-400">
+              <Briefcase className="size-3" /> Macro {macroScore !== undefined ? (macroScore > 15 ? "Bullish" : macroScore < -15 ? "Bearish" : "Neutral") : "On"}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground opacity-70">
+              <Briefcase className="size-3" /> Macro: off
             </Badge>
           )}
         </div>

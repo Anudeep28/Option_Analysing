@@ -3,6 +3,7 @@
 ## Table of Contents
 1. [What This App Does](#what-this-app-does)
 2. [Starting the App](#starting-the-app)
+2.5. [Where the Numbers Come From](#where-the-numbers-come-from)
 3. [Tab 1: Option Pricer — Step-by-Step](#tab-1-option-pricer)
 4. [Tab 2: My Portfolio — Step-by-Step](#tab-2-my-portfolio)
 5. [Results Panels Reference](#results-panels-reference)
@@ -39,6 +40,51 @@ Open your browser to **http://localhost:3000**
 You will see two tabs at the top:
 - **Option Pricer** — Analyse a single option
 - **My Portfolio** — Track all your existing demat positions
+
+---
+
+## Where the Numbers Come From
+
+Not every result is a "live market" value. The app mixes four kinds of inputs, and the output you see depends on which one is driving it.
+
+### 1. Fetched market data (updated when you click **Fetch Live Data**)
+- **Spot price** from Yahoo Finance (`lastPrice`).
+- **Historical daily closes** from Yahoo Finance, used for technical indicators, GARCH vol, and behavioural signals.
+- **Dividend yield** approximated from the dividends reported by Yahoo Finance over the last year.
+- **NSE option chain** (Indian symbols): strike prices, call/put LTP, open interest, and implied volatilities.
+- **News sentiment** from a news API, including a suggested volatility adjustment.
+- **India VIX** and **global macro headlines** for the Macro Impact panel.
+
+### 2. Calculated / model-derived values
+- **GARCH(1,1) current vol** — fitted to the downloaded historical closes; preferred volatility for pricing and the Stock Outlook panel.
+- **Historical annualized vol** — std of daily log returns × √252, used as a fallback when GARCH cannot be fitted.
+- **Theoretical option premium & Greeks** — computed by Black-Scholes, Binomial Tree, or Monte Carlo using the active market inputs.
+- **Implied volatility (IV)** — solved from the market LTP you enter in the Demat Position Tracker using Newton-Raphson.
+- **SVI volatility surface** — calibrated from NSE option-chain IVs to produce a strike-specific surface IV and skew metrics.
+- **Stock price probabilities** — first-passage / terminal log-normal probabilities derived from the active volatility.
+- **Technical, sentiment, and macro scores** — rule-based composites that bias the price cone and trade-decision probabilities.
+
+### 3. Values you enter or override
+- Strike price, days to expiry, option style/type, pricing method.
+- Volatility slider — you can override any fetched/calculated value at any time.
+- Risk-free rate and dividend yield defaults can be edited.
+- Demat entry premium, target premium, stop loss, lot size, and number of lots.
+- Barrier level, Asian averaging settings, Monte Carlo simulation count.
+
+### 4. Hardcoded defaults and fallbacks
+- **Asset presets** (`src/lib/market-data.ts`) contain representative spot prices, volatilities, and dividend yields for common symbols. These are used until you fetch live data.
+- **Default risk-free rates** — 6.5% for Indian symbols, 5.25% for US/global.
+- **NSE lot sizes** are stored as a static map and updated periodically by NSE.
+- **Sector mappings, technical indicator thresholds, and macro latticework weights** are calibrated rule sets, not live data.
+- **AI Report and LLM mental-model reasoning** require a `DEEPSEEK_API_KEY`; otherwise the app falls back to template/rule-based text.
+
+### What this means for results
+- **Option Price, Greeks, Scenario P&L Ladder, IV Analysis:** Driven by the active volatility and spot values. If you clicked **Fetch Live Data**, they use live spot + GARCH/historical vol; otherwise they start from the preset defaults and any manual changes you make.
+- **Trade Decision / Profit Probability:** Depends heavily on the **entry premium, target, stop, and holding period you type in**, plus the effective volatility selected by the engine (market IV → implied-from-premium → historical/GARCH).
+- **Stock Outlook / Price Cone / Target Probability:** Uses GARCH vol + fetched historical closes + optional sentiment/technical/macro scores. Without live data, the cone uses the volatility and spot currently on the form.
+- **Global Macro Impact:** Uses fetched headlines and rule-based sector scoring; the optional DeepSeek layer only enriches the narrative.
+
+> **Bottom line:** Live data and calculated volatilities are the *defaults after fetching*, but you are always one slider/edit away from overriding them. Never treat the outputs as a pure "market feed" — they are model estimates conditioned on the inputs you (or the presets) provide.
 
 ---
 

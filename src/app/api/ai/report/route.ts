@@ -182,6 +182,7 @@ Rules:
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
         max_tokens: 2000,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
       }),
     });
@@ -194,7 +195,8 @@ Rules:
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
-      return Response.json({ error: "Empty response from DeepSeek" }, { status: 502 });
+      const finishReason = data.choices?.[0]?.finish_reason ?? "unknown";
+      return Response.json({ error: `Empty response from DeepSeek (finish_reason: ${finishReason})` }, { status: 502 });
     }
 
     const parsed = JSON.parse(content) as Omit<ReportResponse, "aiPowered" | "timestamp">;

@@ -46,6 +46,7 @@ Rules:
         messages: [{ role: "user", content: prompt }],
         temperature: 0.1,
         max_tokens: 512,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
       }),
     });

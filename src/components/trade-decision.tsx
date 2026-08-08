@@ -22,8 +22,10 @@ interface TradeDecisionProps {
   isLiveData?: boolean;      // true if spot/vol came from a live fetch
   sentimentScore?: number;   // -1..1
   technicalScore?: number;   // -100..100
+  macroScore?: number;       // -100..100, from macro latticework engine
   sentimentActive?: boolean; // true if news sentiment was fetched
   technicalsActive?: boolean;// true if historical data is loaded for technicals
+  macroActive?: boolean;     // true if macro latticework data was fetched
   optionChainData?: { strikePrice: number; callLTP: number; putLTP: number; callIV: number; putIV: number }[];
   theoreticalPrice?: number;
 }
@@ -38,8 +40,8 @@ const VERDICT_STYLES: Record<Verdict, { color: string; bg: string; icon: typeof 
 
 export function TradeDecision({
   spotPrice, volatility, riskFreeRate, dividendYield, currency,
-  defaultStrike, defaultLotSize, symbol, isLiveData, sentimentScore, technicalScore,
-  sentimentActive, technicalsActive, optionChainData, theoreticalPrice,
+  defaultStrike, defaultLotSize, symbol, isLiveData, sentimentScore, technicalScore, macroScore,
+  sentimentActive, technicalsActive, macroActive, optionChainData, theoreticalPrice,
 }: TradeDecisionProps) {
   const [optionType, setOptionType] = useState<OptionType>("call");
   const [strike, setStrike] = useState<number | "">(defaultStrike || "");
@@ -77,9 +79,10 @@ export function TradeDecision({
       dividendYield,
       sentimentScore,
       technicalScore,
+      macroScore,
     });
   }, [ready, optionType, spotPrice, strike, entry, target, stopLoss, lotSize, lots,
-      volatility, marketIV, daysToExpiry, holdingDays, riskFreeRate, dividendYield, sentimentScore, technicalScore]);
+      volatility, marketIV, daysToExpiry, holdingDays, riskFreeRate, dividendYield, sentimentScore, technicalScore, macroScore]);
 
   const vStyle = result ? VERDICT_STYLES[result.verdict] : null;
   const VIcon = vStyle?.icon ?? AlertTriangle;
@@ -148,14 +151,25 @@ export function TradeDecision({
               <TrendingUp className="size-3" /> Technicals: off
             </Badge>
           )}
+          {macroActive ? (
+            <Badge variant="outline" className="gap-1 text-[10px] border-emerald-300 text-emerald-700 dark:text-emerald-400">
+              <Briefcase className="size-3" /> Macro {macroScore !== undefined ? (macroScore > 15 ? "Bullish" : macroScore < -15 ? "Bearish" : "Neutral") : "On"}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1 text-[10px] text-muted-foreground opacity-70">
+              <Briefcase className="size-3" /> Macro: off
+            </Badge>
+          )}
         </div>
-        {(!sentimentActive || !technicalsActive) && (
+        {(!sentimentActive || !technicalsActive || !macroActive) && (
           <p className="text-[10px] text-muted-foreground -mt-2">
-            {!sentimentActive && !technicalsActive
-              ? "Only volatility is active. Fetch Live Data + News Sentiment below to factor in trend & news."
-              : !sentimentActive
-              ? "News sentiment is off — click Fetch News Sentiment below to include it."
-              : "Technicals are off — click Fetch Live Data below to include trend signals."}
+            {!sentimentActive && !technicalsActive && !macroActive
+              ? "Only volatility is active. Fetch Live Data + News Sentiment below to factor in trend, news & macro."
+              : [
+                  !sentimentActive ? "News sentiment is off" : null,
+                  !technicalsActive ? "Technicals are off" : null,
+                  !macroActive ? "Macro latticework is off" : null,
+                ].filter(Boolean).join(", ") + " — click Fetch Live Data / Fetch News Sentiment below to include them."}
           </p>
         )}
 

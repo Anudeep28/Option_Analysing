@@ -27,7 +27,7 @@ function sliderVal(v: number | readonly number[]): number {
 import { getAvailableMethods, priceOption } from "@/lib/pricing";
 import {
   ALL_PRESETS, INDIAN_MARKET_PRESETS, GLOBAL_PRESETS,
-  fetchLiveData, fetchNSEOptionChain, fetchNewsSentiment,
+  fetchLiveData, fetchNSEOptionChain, fetchNewsSentiment, fetchRiskFreeRate,
   getCurrencySymbol, getLotSize, isIndianSymbol, TRADE_DURATIONS,
   daysToYears, getDefaultDayCount,
   type YahooQuote, type YahooHistorical, type NSEOptionChainResponse, type NewsSentimentResult,
@@ -40,6 +40,7 @@ import { StockForecast } from "./stock-forecast";
 import { MacroImpactPanel } from "./macro-impact";
 import { computeTechnicals } from "@/lib/technicals";
 import { computeGARCHVol, buildSmileFromChain, calibrateSVI, sviImpliedVol, computeSkewMetrics } from "@/lib/vol-surface";
+import { computeMacroVolAdjustment, type BaseVolSource } from "@/lib/vol-composition";
 import type { MacroImpactResult } from "@/lib/macro-impact";
 
 const OPTION_STYLES: { value: OptionStyle; label: string; description: string }[] = [
@@ -66,7 +67,10 @@ export function PricingForm() {
   const [spotPrice, setSpotPrice] = useState(100);
   const [strikePrice, setStrikePrice] = useState(100);
   const [riskFreeRate, setRiskFreeRate] = useState(6.5); // India ~6.5%
-  const [volatility, setVolatility] = useState(25);
+  // Only used while volMode === "manual" (or before any base vol exists).
+  // When volMode === "auto", the effective `volatility` below is derived
+  // directly from the calculated composition — no state sync needed.
+  const [manualVolatility, setManualVolatility] = useState(25);
   const [timeToExpiry, setTimeToExpiry] = useState(90); // days
   const [dividendYield, setDividendYield] = useState(1.0);
 
@@ -100,9 +104,16 @@ export function PricingForm() {
   const [isFetchingSentiment, setIsFetchingSentiment] = useState(false);
   const [sentimentError, setSentimentError] = useState<string | null>(null);
 
-  // GARCH-fitted volatility from historical closes
-  const [garchVol, setGarchVol] = useState<number | undefined>(undefined);
-  const [volSource, setVolSource] = useState<"garch" | "historical" | "manual">("manual");
+  // --- Volatility composition ---
+  // baseVolDecimal: the calculated base (GARCH-fitted, historical, or preset), in decimal.
+  // volMode "auto": `volatility` slider is kept in sync with
+  //   baseVol × (1 + sentimentAdj) × (1 + macroAdj) automatically.
+  // volMode "manual": the user (or a "use this IV" action) has taken explicit
+  //   control; baseVolDecimal is preserved so "Reset to calculated" can restore it.
+  const [baseVolDecimal, setBaseVolDecimal] = useState<number | undefined>(undefined);
+  const [baseVolSource, setBaseVolSource] = useState<BaseVolSource | undefined>(undefined);
+  const [volMode, setVolMode] = useState<"auto" | "manual">("manual");
+  const [manualVolLabel, setManualVolLabel] = useState<string>("Manual");
 
   // Global macro impact
   const [macroData, setMacroData] = useState<MacroImpactResult | null>(null);
@@ -113,6 +124,9 @@ export function PricingForm() {
 
   // India VIX
   const [vixLevel, setVixLevel] = useState<number | undefined>(undefined);
+
+  // Risk-free rate provenance
+  const [riskFreeRateSource, setRiskFreeRateSource] = useState<"live" | "default" | "manual">("default");
 
   // Position tracking
   const [lotSize, setLotSize] = useState(1);
@@ -161,6 +175,25 @@ export function PricingForm() {
     ? computeTechnicals(liveHistorical.closes)
     : null;
   const technicalScore = technicals?.overallScore ?? 0;
+  const macroScore = macroData?.macroScore;
+
+  // --- Effective volatility composition ---
+  // sentiment/macro adjustments compose on top of the calculated base vol
+  // (GARCH/historical/preset). Nothing here overwrites a manual override.
+  const sentimentVolAdjPct = sentimentData && sentimentData.suggestedVolatilityAdjustment !== 1
+    ? sentimentData.suggestedVolatilityAdjustment - 1
+    : 0;
+  const macroVolAdjPct = computeMacroVolAdjustment(macroScore, macroData?.primaryEvent?.severity);
+  const calculatedVolDecimal = baseVolDecimal !== undefined
+    ? baseVolDecimal * (1 + sentimentVolAdjPct) * (1 + macroVolAdjPct)
+    : undefined;
+
+  // The effective volatility used everywhere downstream: derived directly
+  // from the calculated composition while in "auto" mode, otherwise the
+  // user's explicit manual value. No effect/state-sync needed.
+  const volatility = volMode === "auto" && calculatedVolDecimal !== undefined
+    ? parseFloat((calculatedVolDecimal * 100).toFixed(1))
+    : manualVolatility;
 
   // Results
   const [result, setResult] = useState<PricingResult | null>(null);
@@ -185,20 +218,26 @@ export function PricingForm() {
     setSelectedSymbol(symbol);
     setSpotPrice(preset.spotPrice);
     setStrikePrice(Math.round(preset.spotPrice));
-    setVolatility(preset.volatility * 100);
+    // Preset volatility is a hardcoded representative default, not live/calculated —
+    // treat it as the "auto" base so it's clearly labeled and gets replaced the
+    // moment live data (or a fetched adjustment) becomes available.
+    setBaseVolDecimal(preset.volatility);
+    setBaseVolSource("preset");
+    setVolMode("auto");
     setDividendYield(preset.dividendYield * 100);
     setLotSize(getLotSize(symbol));
-    // Set appropriate risk-free rate
+    // Set appropriate risk-free rate default (static assumption until live-fetched)
     if (isIndianSymbol(symbol)) {
       setRiskFreeRate(6.5); // RBI repo rate proxy
     } else {
       setRiskFreeRate(5.25); // US Fed funds proxy
     }
+    setRiskFreeRateSource("default");
     setDayCountConvention(getDefaultDayCount(symbol));
     if (optionStyle === "barrier") {
       setBarrierLevel(Math.round(preset.spotPrice * 1.2));
     }
-  }, [optionStyle, dayCountConvention, garchVol]);
+  }, [optionStyle, dayCountConvention]);
 
   const handleFetchLive = useCallback(async () => {
     if (!selectedSymbol) return;
@@ -215,19 +254,21 @@ export function PricingForm() {
       setSpotPrice(parseFloat(quote.lastPrice.toFixed(2)));
       setStrikePrice(Math.round(quote.lastPrice));
 
-      // Prefer GARCH vol over simple historical std — more accurate for current market regime
+      // Prefer GARCH vol over simple historical std — more accurate for current market regime.
+      // This becomes the new "auto" base — it overrides any prior manual override,
+      // since fresh live data should always take priority over a stale manual value.
       const gv = historical.closes.length >= 30
         ? computeGARCHVol(historical.closes)
         : null;
 
       if (gv !== null && gv > 0.01 && gv < 5.0) {
-        setGarchVol(gv);
-        setVolatility(parseFloat((gv * 100).toFixed(1)));
-        setVolSource("garch");
+        setBaseVolDecimal(gv);
+        setBaseVolSource("garch");
+        setVolMode("auto");
       } else if (historical.annualizedVolatility > 0) {
-        setGarchVol(undefined);
-        setVolatility(parseFloat((historical.annualizedVolatility * 100).toFixed(1)));
-        setVolSource("historical");
+        setBaseVolDecimal(historical.annualizedVolatility);
+        setBaseVolSource("historical");
+        setVolMode("auto");
       }
 
       if (historical.dividendYield > 0) {
@@ -235,6 +276,19 @@ export function PricingForm() {
       }
       if (optionStyle === "barrier") {
         setBarrierLevel(Math.round(quote.lastPrice * 1.2));
+      }
+
+      // Fetch a live risk-free-rate benchmark (falls back to the static default if unavailable)
+      try {
+        const rf = await fetchRiskFreeRate(isIndianSymbol(selectedSymbol) ? "IN" : "US");
+        if (rf.live && rf.rate !== null) {
+          setRiskFreeRate(parseFloat(rf.rate.toFixed(2)));
+          setRiskFreeRateSource("live");
+        } else {
+          setRiskFreeRateSource("default");
+        }
+      } catch {
+        setRiskFreeRateSource("default");
       }
 
       // Try fetching NSE option chain (may fail for non-Indian/non-optionable symbols)
@@ -281,18 +335,15 @@ export function PricingForm() {
       const data = await fetchNewsSentiment(selectedSymbol);
       setSentimentData(data);
       setSentimentScore(data.overallSentiment);
-
-      // Apply suggested volatility adjustment
-      if (data.suggestedVolatilityAdjustment !== 1) {
-        const adjusted = volatility * data.suggestedVolatilityAdjustment;
-        setVolatility(parseFloat(adjusted.toFixed(1)));
-      }
+      // The suggested volatility adjustment is composed automatically into the
+      // effective volatility (see `calculatedVolDecimal`) whenever volMode is
+      // "auto" — it no longer mutates the slider directly here.
     } catch (e) {
       setSentimentError(e instanceof Error ? e.message : "Failed to fetch sentiment");
     } finally {
       setIsFetchingSentiment(false);
     }
-  }, [selectedSymbol, volatility]);
+  }, [selectedSymbol]);
 
   const runPricing = useCallback(() => {
     setIsRunning(true);
@@ -317,7 +368,9 @@ export function PricingForm() {
             numSimulations,
             timeSteps,
             binomialSteps,
-            garchVol,
+            // Pass the unrounded, fully-composed (GARCH × sentiment × macro) vol
+            // to Monte Carlo for precision when we're actually using a GARCH fit.
+            garchVol: volMode === "auto" && baseVolSource === "garch" ? calculatedVolDecimal : undefined,
           },
           barrier: optionStyle === "barrier" ? { barrierType, barrierLevel } : undefined,
           asian: optionStyle === "asian" ? { averageType: asianAvgType, observationFrequency: observationFreq } : undefined,
@@ -337,6 +390,7 @@ export function PricingForm() {
     riskFreeRate, volatility, timeToExpiry, dividendYield,
     numSimulations, timeSteps, binomialSteps,
     barrierType, barrierLevel, asianAvgType, observationFreq,
+    volMode, baseVolSource, calculatedVolDecimal,
   ]);
 
   return (
@@ -355,8 +409,10 @@ export function PricingForm() {
           isLiveData={!!liveQuote}
           sentimentScore={sentimentScore}
           technicalScore={technicalScore}
+          macroScore={macroScore}
           sentimentActive={!!sentimentData}
           technicalsActive={!!(liveHistorical?.closes && liveHistorical.closes.length >= 50)}
+          macroActive={!!macroData}
           optionChainData={optionChain?.data}
           theoreticalPrice={result?.price}
         />
@@ -370,8 +426,10 @@ export function PricingForm() {
           symbol={selectedSymbol ?? undefined}
           sentimentScore={sentimentScore}
           technicalScore={technicalScore}
+          macroScore={macroScore}
           sentimentActive={!!sentimentData}
           technicalsActive={!!(liveHistorical?.closes && liveHistorical.closes.length >= 50)}
+          macroActive={!!macroData}
         />
       </div>
 
@@ -635,10 +693,10 @@ export function PricingForm() {
                                   onClick={() => {
                                     setStrikePrice(d.strikePrice);
                                     if (optionType === "call") {
-                                      if (d.callIV > 0) setVolatility(d.callIV);
+                                      if (d.callIV > 0) { setManualVolatility(d.callIV); setVolMode("manual"); setManualVolLabel("Chain IV"); }
                                       if (d.callLTP > 0) setMarketLTP(d.callLTP);
                                     } else {
-                                      if (d.putIV > 0) setVolatility(d.putIV);
+                                      if (d.putIV > 0) { setManualVolatility(d.putIV); setVolMode("manual"); setManualVolLabel("Chain IV"); }
                                       if (d.putLTP > 0) setMarketLTP(d.putLTP);
                                     }
                                   }}
@@ -764,23 +822,52 @@ export function PricingForm() {
               <div className="flex items-center justify-between">
                 <Label className="text-sm">Volatility (σ)</Label>
                 <div className="flex items-center gap-1.5">
-                  {volSource === "garch" && (
+                  {volMode === "auto" && baseVolSource === "garch" && (
                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-mono">GARCH</Badge>
                   )}
-                  {volSource === "historical" && (
+                  {volMode === "auto" && baseVolSource === "historical" && (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">HVol</Badge>
                   )}
-                  {volSource === "manual" && (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">Manual</Badge>
+                  {volMode === "auto" && baseVolSource === "preset" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">Preset default</Badge>
+                  )}
+                  {volMode === "manual" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">{manualVolLabel}</Badge>
                   )}
                   <span className="text-sm font-mono text-muted-foreground">{volatility.toFixed(1)}%</span>
                 </div>
               </div>
               <Slider
                 value={[volatility]}
-                onValueChange={(v) => { setVolatility(sliderVal(v)); setVolSource("manual"); setGarchVol(undefined); }}
+                onValueChange={(v) => { setManualVolatility(sliderVal(v)); setVolMode("manual"); setManualVolLabel("Manual"); }}
                 min={1} max={150} step={0.5}
               />
+              {volMode === "auto" && baseVolDecimal !== undefined && (sentimentVolAdjPct !== 0 || macroVolAdjPct !== 0) && (
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  Base {(baseVolDecimal * 100).toFixed(1)}%
+                  {sentimentVolAdjPct !== 0 && ` × sentiment ${sentimentVolAdjPct > 0 ? "+" : ""}${(sentimentVolAdjPct * 100).toFixed(1)}%`}
+                  {macroVolAdjPct !== 0 && ` × macro +${(macroVolAdjPct * 100).toFixed(1)}%`}
+                  {" "}= effective {volatility.toFixed(1)}%
+                </p>
+              )}
+              {volMode === "manual" && baseVolDecimal !== undefined && (
+                <div className="flex items-center justify-between rounded-md border border-dashed p-2 text-xs">
+                  <span className="text-muted-foreground">
+                    Model-calculated vol (GARCH/sentiment/macro composed): <span className="font-mono font-medium">
+                      {calculatedVolDecimal !== undefined ? (calculatedVolDecimal * 100).toFixed(1) : (baseVolDecimal * 100).toFixed(1)}%
+                    </span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2"
+                    onClick={() => setVolMode("auto")}
+                  >
+                    Reset to calculated
+                  </Button>
+                </div>
+              )}
               {impliedVol !== null && (
                 <div className="flex items-center justify-between rounded-md border border-dashed p-2 text-xs">
                   <span className="text-muted-foreground">
@@ -791,7 +878,7 @@ export function PricingForm() {
                     variant="outline"
                     size="sm"
                     className="h-6 text-[10px] px-2"
-                    onClick={() => { setVolatility(impliedVol * 100); setVolSource("manual"); }}
+                    onClick={() => { setManualVolatility(impliedVol * 100); setVolMode("manual"); setManualVolLabel("Market IV"); }}
                   >
                     Use this IV
                   </Button>
@@ -812,7 +899,7 @@ export function PricingForm() {
                     variant="outline"
                     size="sm"
                     className="h-6 text-[10px] px-2 border-purple-200 dark:border-purple-900"
-                    onClick={() => { setVolatility(surfaceIV * 100); setVolSource("manual"); }}
+                    onClick={() => { setManualVolatility(surfaceIV * 100); setVolMode("manual"); setManualVolLabel("Surface IV"); }}
                   >
                     Use surface IV
                   </Button>
@@ -842,13 +929,29 @@ export function PricingForm() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-sm">Risk-Free Rate (r)</Label>
-                <span className="text-sm font-mono text-muted-foreground">{riskFreeRate.toFixed(2)}%</span>
+                <div className="flex items-center gap-1.5">
+                  {riskFreeRateSource === "live" && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-mono">Live benchmark</Badge>
+                  )}
+                  {riskFreeRateSource === "default" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">Static assumption</Badge>
+                  )}
+                  {riskFreeRateSource === "manual" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">Manual</Badge>
+                  )}
+                  <span className="text-sm font-mono text-muted-foreground">{riskFreeRate.toFixed(2)}%</span>
+                </div>
               </div>
               <Slider
                 value={[riskFreeRate]}
-                onValueChange={(v) => setRiskFreeRate(sliderVal(v))}
+                onValueChange={(v) => { setRiskFreeRate(sliderVal(v)); setRiskFreeRateSource("manual"); }}
                 min={0} max={20} step={0.1}
               />
+              {riskFreeRateSource === "default" && isIndianSymbol(selectedSymbol) && (
+                <p className="text-[10px] text-muted-foreground">
+                  No free live India G-Sec yield feed is available — this is a static RBI repo-rate proxy, not a live benchmark. Adjust manually if you have a better estimate.
+                </p>
+              )}
             </div>
 
             {/* Dividend Yield Slider */}
@@ -1076,7 +1179,7 @@ export function PricingForm() {
           vixLevel={vixLevel}
           currency={currency}
           lotSize={lotSize}
-          garchVol={garchVol}
+          garchVol={volMode === "auto" && baseVolSource === "garch" ? calculatedVolDecimal : undefined}
           technicals={technicals}
           macroScore={macroData?.macroScore}
           macroData={macroData ?? undefined}

@@ -22,6 +22,7 @@ export interface TradeDecisionInput {
   // Optional contextual signals (each roughly -1..+1, positive = bullish on underlying)
   sentimentScore?: number;
   technicalScore?: number;  // -100..+100
+  macroScore?: number;      // -100..+100, from the macro latticework engine
 }
 
 /**
@@ -147,7 +148,7 @@ export function evaluateTrade(input: TradeDecisionInput): TradeDecisionResult {
   const {
     optionType, spotPrice, strikePrice, entryPremium, targetPremium, stopLossPremium,
     quantity, volatility: historicalVol, marketIV, daysToOptionExpiry, holdingDays,
-    riskFreeRate, dividendYield, sentimentScore = 0, technicalScore = 0,
+    riskFreeRate, dividendYield, sentimentScore = 0, technicalScore = 0, macroScore = 0,
   } = input;
 
   const side = inferSide(entryPremium, targetPremium);
@@ -226,8 +227,8 @@ export function evaluateTrade(input: TradeDecisionInput): TradeDecisionResult {
   const underlyingBiasNeeded: "up" | "down" =
     (optionType === "call") === (side === "buy") ? "up" : "down";
 
-  // Real-world drift: blend risk-neutral with sentiment/technical bias
-  const biasAdj = (sentimentScore * 0.15) + (technicalScore / 100) * 0.15; // annualized drift tilt
+  // Real-world drift: blend risk-neutral with sentiment/technical/macro bias
+  const biasAdj = (sentimentScore * 0.15) + (technicalScore / 100) * 0.15 + (macroScore / 100) * 0.08; // annualized drift tilt
   const drift = (riskFreeRate - dividendYield) + biasAdj;
 
   if (requiredSpotForTarget !== null && requiredSpotForTarget > 0) {
@@ -270,13 +271,16 @@ export function evaluateTrade(input: TradeDecisionInput): TradeDecisionResult {
   if (expectedValue > 0) { score += 10; reasons.push(`Positive expected value of ${expectedValue >= 0 ? "+" : ""}${expectedValue.toFixed(0)}`); }
   else { score -= 10; warnings.push(`Negative expected value (${expectedValue.toFixed(0)}) — odds not in your favor`); }
 
-  // Directional alignment with sentiment/technicals
-  const combinedBias = (sentimentScore * 50) + (technicalScore / 2); // ~ -100..100
+  // Directional alignment with sentiment/technicals/macro
+  const combinedBias = (sentimentScore * 50) + (technicalScore / 2) + (macroScore / 2.5); // ~ -100..100
   const wantsUp = underlyingBiasNeeded === "up";
-  if (wantsUp && combinedBias > 15) { score += 10; reasons.push("News & technicals lean bullish, aligned with this trade"); }
-  else if (!wantsUp && combinedBias < -15) { score += 10; reasons.push("News & technicals lean bearish, aligned with this trade"); }
-  else if (wantsUp && combinedBias < -15) { score -= 12; warnings.push("News & technicals lean bearish but trade needs an UP move"); }
-  else if (!wantsUp && combinedBias > 15) { score -= 12; warnings.push("News & technicals lean bullish but trade needs a DOWN move"); }
+  if (wantsUp && combinedBias > 15) { score += 10; reasons.push("News, technicals & macro lean bullish, aligned with this trade"); }
+  else if (!wantsUp && combinedBias < -15) { score += 10; reasons.push("News, technicals & macro lean bearish, aligned with this trade"); }
+  else if (wantsUp && combinedBias < -15) { score -= 12; warnings.push("News, technicals & macro lean bearish but trade needs an UP move"); }
+  else if (!wantsUp && combinedBias > 15) { score -= 12; warnings.push("News, technicals & macro lean bullish but trade needs a DOWN move"); }
+  if (macroScore !== 0 && Math.abs(macroScore) > 30) {
+    warnings.push(`Macro latticework score is ${macroScore > 0 ? "+" : ""}${macroScore.toFixed(0)} — a strong macro headwind/tailwind is in play`);
+  }
 
   // Time-decay caution for option BUYERS on short holds
   if (side === "buy" && holdingDays <= 1 && daysToOptionExpiry <= 7) {
@@ -332,6 +336,7 @@ export interface StockForecastInput {
   dividendYield: number;
   sentimentScore?: number;  // -1..1
   technicalScore?: number;  // -100..100
+  macroScore?: number;      // -100..+100
 }
 
 export interface StockForecastResult {
@@ -351,13 +356,13 @@ export interface StockForecastResult {
 
 export function forecastStockMovement(input: StockForecastInput): StockForecastResult {
   const { spotPrice, volatility, days, riskFreeRate, dividendYield,
-    sentimentScore = 0, technicalScore = 0 } = input;
+    sentimentScore = 0, technicalScore = 0, macroScore = 0 } = input;
 
   const t = Math.max(days / 365, 1 / 365);
   const sigmaT = volatility * Math.sqrt(t);
 
   // Blend risk-neutral drift with behavioral bias
-  const biasAdj = (sentimentScore * 0.12) + (technicalScore / 100) * 0.12;
+  const biasAdj = (sentimentScore * 0.12) + (technicalScore / 100) * 0.12 + (macroScore / 100) * 0.06;
   const drift = (riskFreeRate - dividendYield) + biasAdj;
   const mu = (drift - 0.5 * volatility * volatility) * t; // log-space mean
 
@@ -371,7 +376,7 @@ export function forecastStockMovement(input: StockForecastInput): StockForecastR
   const probUp = normalCDF(mu / sigmaT);
   const probDown = 1 - probUp;
 
-  const combinedBias = (sentimentScore * 50) + (technicalScore / 2);
+  const combinedBias = (sentimentScore * 50) + (technicalScore / 2) + (macroScore / 2.5);
   let bias: "bullish" | "bearish" | "neutral";
   if (combinedBias > 15) bias = "bullish";
   else if (combinedBias < -15) bias = "bearish";
