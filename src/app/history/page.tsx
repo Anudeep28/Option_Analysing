@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/session-server";
 import { listForecasts } from "@/lib/db";
 import { ForecastCompareButton } from "@/components/forecast-compare-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";

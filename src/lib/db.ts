@@ -71,6 +71,36 @@ export async function query<T extends Record<string, unknown> = Record<string, u
   return pool.query<T>(text, params);
 }
 
+// ─── User accounts ───────────────────────────────────────────
+
+export interface UserRow {
+  [key: string]: unknown;
+  id: string;
+  username: string;
+  password_hash: string;
+  created_at: string;
+}
+
+export async function createUser(
+  id: string,
+  username: string,
+  passwordHash: string,
+): Promise<UserRow> {
+  const result = await query<UserRow>(
+    `INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3) RETURNING *`,
+    [id, username, passwordHash],
+  );
+  return result.rows[0];
+}
+
+export async function getUserByUsername(username: string): Promise<UserRow | null> {
+  const result = await query<UserRow>(
+    "SELECT * FROM users WHERE username = $1",
+    [username],
+  );
+  return result.rows[0] ?? null;
+}
+
 // ─── Forecast persistence helpers ───────────────────────────
 
 export interface ForecastRow {

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/session-server";
 import { getForecastById, updateForecastComparison, upsertRealPrice } from "@/lib/db";
 import { fetchYahooQuote } from "@/lib/yahoo-finance";
 

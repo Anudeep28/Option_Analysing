@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth } from "@/lib/session-server";
 import { insertForecast, listForecasts, type ForecastInsertInput } from "@/lib/db";
 import { forecastStockMovement } from "@/lib/trade-decision";
 

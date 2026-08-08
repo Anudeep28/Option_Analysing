@@ -3,12 +3,13 @@
 import { PricingForm } from "@/components/pricing-form";
 import { PortfolioManager } from "@/components/portfolio-manager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth, SignInButton, UserButton } from "@clerk/nextjs";
+import { Button } from "@/components/ui/button";
+import { useSession } from "@/lib/auth-context";
 import { Activity, Calculator, BookOpen } from "lucide-react";
 import Link from "next/link";
 
 export default function Home() {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, username, logout } = useSession();
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -31,13 +32,18 @@ export default function Home() {
               <span className="text-border">|</span>
               <span>Lookback</span>
             </div>
-            <div className="pl-2 border-l border-border">
+            <div className="pl-2 border-l border-border flex items-center gap-2">
               {isSignedIn ? (
-                <UserButton />
+                <>
+                  <span className="text-sm text-muted-foreground">{username}</span>
+                  <Button variant="outline" size="sm" onClick={() => logout()}>
+                    Sign out
+                  </Button>
+                </>
               ) : (
-                <SignInButton mode="modal">
-                  <button className="text-sm text-foreground hover:underline">Sign in</button>
-                </SignInButton>
+                <Link href="/sign-in" className="text-sm text-foreground hover:underline">
+                  Sign in
+                </Link>
               )}
             </div>
           </div>

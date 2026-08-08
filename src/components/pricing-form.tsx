@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useSession } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,7 +63,7 @@ const METHOD_LABELS: Record<PricingMethod, string> = {
 };
 
 export function PricingForm() {
-  const { userId } = useAuth();
+  const { userId } = useSession();
 
   // Option configuration
   const [optionStyle, setOptionStyle] = useState<OptionStyle>("european");
