@@ -56,8 +56,10 @@ CREATE TABLE IF NOT EXISTS pricing_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pricing_runs_symbol ON pricing_runs(symbol);
-CREATE INDEX IF NOT EXISTS idx_pricing_runs_user_id ON pricing_runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_pricing_runs_created_at ON pricing_runs(created_at DESC);
+-- Note: the index on pricing_runs(user_id) is created in src/lib/db.ts,
+-- after the ALTER TABLE migration that backfills the column on databases
+-- where pricing_runs pre-dates the user_id column.
 
 CREATE TABLE IF NOT EXISTS real_prices (
   id SERIAL PRIMARY KEY,
