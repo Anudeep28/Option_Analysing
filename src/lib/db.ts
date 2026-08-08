@@ -1,6 +1,9 @@
 import { Pool, QueryResult } from "pg";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const connectionString = process.env.DATABASE_URL;
+const SCHEMA_PATH = join(process.cwd(), "scripts/schema.sql");
 
 if (!connectionString) {
   // Don't throw during build — the route handlers/server components that use
@@ -28,6 +31,26 @@ if (process.env.NODE_ENV !== "production") {
   globalForPg.__pgPool = pool;
 }
 
+let initPromise: Promise<void> | null = null;
+
+async function runSchema(): Promise<void> {
+  const sql = readFileSync(SCHEMA_PATH, "utf8");
+  await pool.query(sql);
+}
+
+export async function initDb(): Promise<void> {
+  if (initPromise) return initPromise;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set");
+  }
+  initPromise = runSchema().catch((err) => {
+    console.error("Failed to ensure database schema:", err);
+    initPromise = null;
+    throw err;
+  });
+  return initPromise;
+}
+
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   text: string,
   params?: unknown[],
@@ -35,6 +58,7 @@ export async function query<T extends Record<string, unknown> = Record<string, u
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set");
   }
+  await initDb();
   return pool.query<T>(text, params);
 }
 
