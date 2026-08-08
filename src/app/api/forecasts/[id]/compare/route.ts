@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { getForecastById, updateForecastComparison, upsertRealPrice } from "@/lib/db";
 import { fetchYahooQuote } from "@/lib/yahoo-finance";
 
@@ -9,8 +10,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return Response.json({ error: "Invalid forecast id" }, { status: 400 });
   }
 
+  const { userId } = await auth();
+  if (!userId) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
-    const forecast = await getForecastById(id);
+    const forecast = await getForecastById(id, userId);
     if (!forecast) {
       return Response.json({ error: "Forecast not found" }, { status: 404 });
     }

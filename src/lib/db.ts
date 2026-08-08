@@ -36,6 +36,15 @@ let initPromise: Promise<void> | null = null;
 async function runSchema(): Promise<void> {
   const sql = readFileSync(SCHEMA_PATH, "utf8");
   await pool.query(sql);
+  // Migration for deployments that already have the pricing_runs table
+  // without a user_id column.
+  await pool.query(`
+    ALTER TABLE pricing_runs
+    ADD COLUMN IF NOT EXISTS user_id TEXT;
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_pricing_runs_user_id ON pricing_runs(user_id);
+  `);
 }
 
 export async function initDb(): Promise<void> {
@@ -83,6 +92,7 @@ export interface ForecastRow {
   macro_vol_adj_pct: number;
   mental_model_vol_adj_pct: number;
   calculated_vol_decimal: number | null;
+  user_id: string | null;
   theoretical_price: number | null;
   market_ltp: number | null;
   sentiment_score: number | null;
@@ -110,6 +120,7 @@ export interface ForecastInsertInput {
   macro_vol_adj_pct?: number;
   mental_model_vol_adj_pct?: number;
   calculated_vol_decimal?: number | null;
+  user_id?: string | null;
   theoretical_price?: number | null;
   market_ltp?: number | null;
   sentiment_score?: number | null;
@@ -126,10 +137,10 @@ export async function insertForecast(input: ForecastInsertInput): Promise<number
       symbol, spot_price, strike_price, option_type, option_style, pricing_method,
       risk_free_rate, dividend_yield, time_to_expiry_days,
       volatility, base_vol_source, sentiment_vol_adj_pct, macro_vol_adj_pct, mental_model_vol_adj_pct,
-      calculated_vol_decimal, theoretical_price, market_ltp,
+      calculated_vol_decimal, user_id, theoretical_price, market_ltp,
       sentiment_score, technical_score, macro_score, predicted_stock_price,
       input_snapshot, result_snapshot
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
     RETURNING id`,
     [
       input.symbol ?? null,
@@ -147,6 +158,7 @@ export async function insertForecast(input: ForecastInsertInput): Promise<number
       input.macro_vol_adj_pct ?? 0,
       input.mental_model_vol_adj_pct ?? 0,
       input.calculated_vol_decimal ?? null,
+      input.user_id ?? null,
       input.theoretical_price ?? null,
       input.market_ltp ?? null,
       input.sentiment_score ?? null,
@@ -161,19 +173,27 @@ export async function insertForecast(input: ForecastInsertInput): Promise<number
 }
 
 export async function listForecasts(
+  userId: string,
   symbol?: string | null,
   limit = 100,
 ): Promise<ForecastRow[]> {
+  const baseSql = `SELECT * FROM pricing_runs WHERE user_id = $1`;
   const sql = symbol
-    ? `SELECT * FROM pricing_runs WHERE symbol = $1 ORDER BY created_at DESC LIMIT $2`
-    : `SELECT * FROM pricing_runs ORDER BY created_at DESC LIMIT $1`;
-  const params = symbol ? [symbol, limit] : [limit];
+    ? `${baseSql} AND symbol = $2 ORDER BY created_at DESC LIMIT $3`
+    : `${baseSql} ORDER BY created_at DESC LIMIT $2`;
+  const params = symbol ? [userId, symbol, limit] : [userId, limit];
   const result = await query<ForecastRow>(sql, params);
   return result.rows;
 }
 
-export async function getForecastById(id: number): Promise<ForecastRow | null> {
-  const result = await query<ForecastRow>("SELECT * FROM pricing_runs WHERE id = $1", [id]);
+export async function getForecastById(
+  id: number,
+  userId: string,
+): Promise<ForecastRow | null> {
+  const result = await query<ForecastRow>(
+    "SELECT * FROM pricing_runs WHERE id = $1 AND user_id = $2",
+    [id, userId],
+  );
   return result.rows[0] ?? null;
 }
 

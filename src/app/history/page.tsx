@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+import { auth } from "@clerk/nextjs/server";
 import { listForecasts } from "@/lib/db";
 import { ForecastCompareButton } from "@/components/forecast-compare-button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -34,8 +35,17 @@ export default async function HistoryPage({
 }: {
   searchParams: Promise<{ symbol?: string }>;
 }) {
+  const { userId } = await auth();
+  if (!userId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Please sign in to view your forecast history.</p>
+      </div>
+    );
+  }
+
   const params = await searchParams;
-  const forecasts = await listForecasts(params.symbol, 200);
+  const forecasts = await listForecasts(userId, params.symbol, 200);
 
   return (
     <div className="min-h-screen bg-background">

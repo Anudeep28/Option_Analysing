@@ -3,10 +3,12 @@
 import { PricingForm } from "@/components/pricing-form";
 import { PortfolioManager } from "@/components/portfolio-manager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth, SignInButton, UserButton } from "@clerk/nextjs";
 import { Activity, Calculator, BookOpen } from "lucide-react";
 import Link from "next/link";
 
 export default function Home() {
+  const { isSignedIn } = useAuth();
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -28,6 +30,15 @@ export default function Home() {
               <span>Barrier</span>
               <span className="text-border">|</span>
               <span>Lookback</span>
+            </div>
+            <div className="pl-2 border-l border-border">
+              {isSignedIn ? (
+                <UserButton />
+              ) : (
+                <SignInButton mode="modal">
+                  <button className="text-sm text-foreground hover:underline">Sign in</button>
+                </SignInButton>
+              )}
             </div>
           </div>
         </div>

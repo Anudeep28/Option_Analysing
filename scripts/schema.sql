@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS pricing_runs (
   mental_model_vol_adj_pct NUMERIC DEFAULT 0,
   calculated_vol_decimal NUMERIC,
 
+  -- Per-user history
+  user_id TEXT,
+
   theoretical_price NUMERIC,
   market_ltp NUMERIC,
 
@@ -46,6 +49,7 @@ CREATE TABLE IF NOT EXISTS pricing_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pricing_runs_symbol ON pricing_runs(symbol);
+CREATE INDEX IF NOT EXISTS idx_pricing_runs_user_id ON pricing_runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_pricing_runs_created_at ON pricing_runs(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS real_prices (

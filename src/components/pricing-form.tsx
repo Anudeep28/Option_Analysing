@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,6 +63,8 @@ const METHOD_LABELS: Record<PricingMethod, string> = {
 };
 
 export function PricingForm() {
+  const { userId } = useAuth();
+
   // Option configuration
   const [optionStyle, setOptionStyle] = useState<OptionStyle>("european");
   const [optionType, setOptionType] = useState<OptionType>("call");
@@ -389,7 +392,9 @@ export function PricingForm() {
         setResult(res);
 
         // Persist this pricing run so it can be compared with real market prices later.
+        // Only save when the user is signed in.
         const savePricingRun = async () => {
+          if (!userId) return;
           try {
             await fetch("/api/forecasts", {
               method: "POST",
@@ -438,7 +443,7 @@ export function PricingForm() {
     barrierType, barrierLevel, asianAvgType, observationFreq,
     volMode, baseVolSource, calculatedVolDecimal, mentalModelVolAdjPct,
     selectedSymbol, sentimentVolAdjPct, macroVolAdjPct,
-    sentimentScore, technicalScore, macroScore, marketLTP,
+    sentimentScore, technicalScore, macroScore, marketLTP, userId,
   ]);
 
   return (

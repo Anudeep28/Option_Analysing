@@ -1,9 +1,15 @@
 import { NextRequest } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { insertForecast, listForecasts, type ForecastInsertInput } from "@/lib/db";
 import { forecastStockMovement } from "@/lib/trade-decision";
 
 export async function POST(request: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
 
     // Compute the predicted stock price using the same forecast engine as the
@@ -35,6 +41,7 @@ export async function POST(request: NextRequest) {
       macro_vol_adj_pct: body.macro_vol_adj_pct ?? 0,
       mental_model_vol_adj_pct: body.mental_model_vol_adj_pct ?? 0,
       calculated_vol_decimal: body.calculated_vol_decimal,
+      user_id: userId,
       theoretical_price: body.theoretical_price,
       market_ltp: body.market_ltp,
       sentiment_score: body.sentiment_score,
@@ -56,9 +63,14 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const symbol = request.nextUrl.searchParams.get("symbol");
     const limit = parseInt(request.nextUrl.searchParams.get("limit") || "100", 10);
-    const rows = await listForecasts(symbol, isNaN(limit) ? 100 : limit);
+    const rows = await listForecasts(userId, symbol, isNaN(limit) ? 100 : limit);
     return Response.json(rows);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to fetch forecasts";
