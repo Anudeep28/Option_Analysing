@@ -40,7 +40,11 @@ import { StockForecast } from "./stock-forecast";
 import { MacroImpactPanel } from "./macro-impact";
 import { computeTechnicals } from "@/lib/technicals";
 import { computeGARCHVol, buildSmileFromChain, calibrateSVI, sviImpliedVol, computeSkewMetrics } from "@/lib/vol-surface";
-import { computeMacroVolAdjustment, type BaseVolSource } from "@/lib/vol-composition";
+import {
+  computeMacroVolAdjustment,
+  computeMentalModelVolAdjustment,
+  type BaseVolSource,
+} from "@/lib/vol-composition";
 import type { MacroImpactResult } from "@/lib/macro-impact";
 
 const OPTION_STYLES: { value: OptionStyle; label: string; description: string }[] = [
@@ -178,14 +182,19 @@ export function PricingForm() {
   const macroScore = macroData?.macroScore;
 
   // --- Effective volatility composition ---
-  // sentiment/macro adjustments compose on top of the calculated base vol
-  // (GARCH/historical/preset). Nothing here overwrites a manual override.
+  // sentiment/macro/mental-model adjustments compose on top of the calculated
+  // base vol (GARCH/historical/preset). Nothing here overwrites a manual override.
+  const mentalModelNetScore = macroData?.latticework?.netScore;
   const sentimentVolAdjPct = sentimentData && sentimentData.suggestedVolatilityAdjustment !== 1
     ? sentimentData.suggestedVolatilityAdjustment - 1
     : 0;
   const macroVolAdjPct = computeMacroVolAdjustment(macroScore, macroData?.primaryEvent?.severity);
+  const mentalModelVolAdjPct = computeMentalModelVolAdjustment(mentalModelNetScore, timeToExpiry);
   const calculatedVolDecimal = baseVolDecimal !== undefined
-    ? baseVolDecimal * (1 + sentimentVolAdjPct) * (1 + macroVolAdjPct)
+    ? baseVolDecimal
+      * (1 + sentimentVolAdjPct)
+      * (1 + macroVolAdjPct)
+      * (1 + mentalModelVolAdjPct)
     : undefined;
 
   // The effective volatility used everywhere downstream: derived directly
@@ -368,7 +377,7 @@ export function PricingForm() {
             numSimulations,
             timeSteps,
             binomialSteps,
-            // Pass the unrounded, fully-composed (GARCH × sentiment × macro) vol
+            // Pass the unrounded, fully-composed (GARCH × sentiment × macro × mental model) vol
             // to Monte Carlo for precision when we're actually using a GARCH fit.
             garchVol: volMode === "auto" && baseVolSource === "garch" ? calculatedVolDecimal : undefined,
           },
@@ -378,6 +387,43 @@ export function PricingForm() {
 
         const res = priceOption(input);
         setResult(res);
+
+        // Persist this pricing run so it can be compared with real market prices later.
+        const savePricingRun = async () => {
+          try {
+            await fetch("/api/forecasts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                symbol: selectedSymbol,
+                spot_price: spotPrice,
+                strike_price: strikePrice,
+                option_type: optionType,
+                option_style: optionStyle,
+                pricing_method: pricingMethod,
+                risk_free_rate: riskFreeRate / 100,
+                dividend_yield: dividendYield / 100,
+                time_to_expiry_days: timeToExpiry,
+                volatility: volatility / 100,
+                base_vol_source: baseVolSource ?? null,
+                sentiment_vol_adj_pct: sentimentVolAdjPct,
+                macro_vol_adj_pct: macroVolAdjPct,
+                mental_model_vol_adj_pct: mentalModelVolAdjPct,
+                calculated_vol_decimal: calculatedVolDecimal,
+                theoretical_price: res.price,
+                market_ltp: marketLTP ?? null,
+                sentiment_score: sentimentScore ?? null,
+                technical_score: technicalScore,
+                macro_score: macroScore ?? null,
+                input_snapshot: input,
+                result_snapshot: res,
+              }),
+            });
+          } catch (err) {
+            console.error("Failed to save pricing run:", err);
+          }
+        };
+        void savePricingRun();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Pricing failed");
         setResult(null);
@@ -387,10 +433,12 @@ export function PricingForm() {
     }, 50);
   }, [
     optionStyle, optionType, pricingMethod, spotPrice, strikePrice,
-    riskFreeRate, volatility, timeToExpiry, dividendYield,
+    riskFreeRate, volatility, timeToExpiry, dayCountConvention, dividendYield,
     numSimulations, timeSteps, binomialSteps,
     barrierType, barrierLevel, asianAvgType, observationFreq,
-    volMode, baseVolSource, calculatedVolDecimal,
+    volMode, baseVolSource, calculatedVolDecimal, mentalModelVolAdjPct,
+    selectedSymbol, sentimentVolAdjPct, macroVolAdjPct,
+    sentimentScore, technicalScore, macroScore, marketLTP,
   ]);
 
   return (

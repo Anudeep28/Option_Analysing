@@ -4,6 +4,7 @@ import { PricingForm } from "@/components/pricing-form";
 import { PortfolioManager } from "@/components/portfolio-manager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Activity, Calculator, BookOpen } from "lucide-react";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -15,16 +16,19 @@ export default function Home() {
             <Activity className="size-5" />
             <h1 className="text-lg font-bold tracking-tight">Option Pricing Simulator</h1>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>European</span>
-            <span className="text-border">|</span>
-            <span>American</span>
-            <span className="text-border">|</span>
-            <span>Asian</span>
-            <span className="text-border">|</span>
-            <span>Barrier</span>
-            <span className="text-border">|</span>
-            <span>Lookback</span>
+          <div className="flex items-center gap-4">
+            <Link href="/history" className="text-sm text-foreground hover:underline">History</Link>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span>European</span>
+              <span className="text-border">|</span>
+              <span>American</span>
+              <span className="text-border">|</span>
+              <span>Asian</span>
+              <span className="text-border">|</span>
+              <span>Barrier</span>
+              <span className="text-border">|</span>
+              <span>Lookback</span>
+            </div>
           </div>
         </div>
       </header>

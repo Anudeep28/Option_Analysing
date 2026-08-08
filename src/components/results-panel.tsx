@@ -269,7 +269,7 @@ export function ResultsPanel({
           {spotPrice > 0 && (historicalVol ?? 0) > 0 && (
             <StockMCForecast
               spotPrice={spotPrice}
-              annualVol={historicalVol ?? volatility}
+              annualVol={garchVol ?? volatility}
               garchVol={garchVol}
               riskFreeRate={riskFreeRate}
               dividendYield={dividendYield}

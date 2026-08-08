@@ -2,8 +2,9 @@
 // Volatility Composition
 // ============================================================
 // Combines the calculated base volatility (GARCH / historical / preset)
-// with the news-sentiment adjustment and the macro-latticework adjustment
-// into a single "effective" volatility used for pricing and probabilities.
+// with the news-sentiment adjustment, the macro-latticework adjustment,
+// and a decayed mental-model shock into a single "effective" volatility used
+// for pricing and probabilities.
 //
 // This makes the adjustment chain explicit and inspectable instead of
 // collapsing everything into one mutable slider value with no provenance.
@@ -30,12 +31,29 @@ export function computeMacroVolAdjustment(
   return weight * (Math.abs(macroScore) / 100);
 }
 
+// Mental-model shocks are short-lived and decay with option expiry — a
+// strong model conviction may spike realised vol today but should have little
+// impact on a 30-day option.
+const MENTAL_MODEL_MAX_VOL_SHOCK = 0.08; // max extra vol (±8%) at full conviction, same-day
+const MENTAL_MODEL_VOL_HALF_LIFE_DAYS = 7; // decay half-life in calendar days
+
+export function computeMentalModelVolAdjustment(
+  mentalModelNetScore: number | undefined,
+  daysToExpiry: number,
+): number {
+  if (mentalModelNetScore === undefined || daysToExpiry <= 0) return 0;
+  const shock = (Math.abs(mentalModelNetScore) / 100) * MENTAL_MODEL_MAX_VOL_SHOCK;
+  const decay = Math.exp(-daysToExpiry / MENTAL_MODEL_VOL_HALF_LIFE_DAYS);
+  return shock * decay;
+}
+
 export interface VolComposition {
-  baseVol: number;            // decimal, e.g. 0.1534
+  baseVol: number;                 // decimal, e.g. 0.1534
   baseSource: BaseVolSource;
-  sentimentAdjPct: number;    // e.g. 0.05 = +5%
-  macroAdjPct: number;        // e.g. 0.03 = +3%
-  effectiveVol: number;       // decimal, after composing all adjustments
+  sentimentAdjPct: number;       // e.g. 0.05 = +5%
+  macroAdjPct: number;            // e.g. 0.03 = +3%
+  mentalModelVolAdjPct: number;    // e.g. 0.05 = +5%
+  effectiveVol: number;            // decimal, after composing all adjustments
 }
 
 export function composeVolatility(
@@ -43,7 +61,13 @@ export function composeVolatility(
   baseSource: BaseVolSource,
   sentimentAdjPct: number,
   macroAdjPct: number,
+  mentalModelVolAdjPct = 0,
 ): VolComposition {
-  const effectiveVol = baseVol * (1 + sentimentAdjPct) * (1 + macroAdjPct);
-  return { baseVol, baseSource, sentimentAdjPct, macroAdjPct, effectiveVol };
+  const effectiveVol = baseVol
+    * (1 + sentimentAdjPct)
+    * (1 + macroAdjPct)
+    * (1 + mentalModelVolAdjPct);
+  return {
+    baseVol, baseSource, sentimentAdjPct, macroAdjPct, mentalModelVolAdjPct, effectiveVol,
+  };
 }
