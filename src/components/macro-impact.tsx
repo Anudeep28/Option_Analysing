@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import type { MacroImpactResult, MacroEvent, MentalModelLayer } from "@/lib/macro-impact";
+import type { NewsNodeImpact, ValueChain, ValueChainNode } from "@/lib/value-chain";
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -291,6 +292,168 @@ function MentalModelLayers({ layers }: { layers: MentalModelLayer[] }) {
   );
 }
 
+// ─── Value-Chain Component Impact ─────────────────────────────
+
+function nodeColor(type: ValueChainNode["type"]): string {
+  const map: Record<ValueChainNode["type"], string> = {
+    segment: "bg-violet-50 border-violet-200 text-violet-700 dark:bg-violet-950 dark:text-violet-300 dark:border-violet-800",
+    product: "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800",
+    component: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800",
+    supplier: "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800",
+    geography: "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800",
+    customer: "bg-slate-50 border-slate-200 text-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-700",
+  };
+  return map[type];
+}
+
+function ValueChainImpact({
+  valueChain,
+  componentImpacts,
+}: {
+  valueChain: ValueChain;
+  componentImpacts?: NewsNodeImpact[];
+}) {
+  const nodeById = new Map(valueChain.nodes.map((n) => [n.id, n]));
+  const impactsByNode = new Map<string, NewsNodeImpact[]>();
+  if (componentImpacts) {
+    for (const impact of componentImpacts) {
+      const list = impactsByNode.get(impact.nodeId) ?? [];
+      list.push(impact);
+      impactsByNode.set(impact.nodeId, list);
+    }
+  }
+
+  const topNodes = valueChain.nodes
+    .filter((n) => impactsByNode.has(n.id))
+    .sort((a, b) => {
+      const aImpacts = impactsByNode.get(a.id) ?? [];
+      const bImpacts = impactsByNode.get(b.id) ?? [];
+      const aMax = Math.max(...aImpacts.map((i) => Math.abs(i.vector.costShock) + Math.abs(i.vector.demandShock) + Math.abs(i.vector.supplyRisk)));
+      const bMax = Math.max(...bImpacts.map((i) => Math.abs(i.vector.costShock) + Math.abs(i.vector.demandShock) + Math.abs(i.vector.supplyRisk)));
+      return bMax - aMax;
+    })
+    .slice(0, 6);
+
+  if (topNodes.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+        Value-chain decomposition is available, but no live headline mapped to a specific node.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+        <Sigma className="size-3.5" /> Component-Level News Impact
+        <span className="text-[10px] text-muted-foreground font-normal ml-1">value-chain tagged news</span>
+      </div>
+      <div className="space-y-2">
+        {topNodes.map((node) => {
+          const impacts = impactsByNode.get(node.id) ?? [];
+          const parent = node.parentId ? nodeById.get(node.parentId) : undefined;
+          return (
+            <div key={node.id} className="rounded-lg border bg-muted/20 overflow-hidden">
+              <div className="p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge variant="outline" className={`text-[10px] ${nodeColor(node.type)}`}>
+                      {node.type}
+                    </Badge>
+                    <span className="text-xs font-semibold truncate">{node.name}</span>
+                    {parent && <span className="text-[10px] text-muted-foreground truncate">under {parent.name}</span>}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    r{(node.revenueShare ?? 0).toFixed(2)} / c{(node.costShare ?? 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  {impacts.slice(0, 2).map((impact, i) => (
+                    <div key={i} className="text-xs text-muted-foreground leading-relaxed">
+                      <span className={`font-mono font-bold ${
+                        (impact.vector.costShock + impact.vector.demandShock + impact.vector.supplyRisk) > 0
+                          ? "text-emerald-600"
+                          : (impact.vector.costShock + impact.vector.demandShock + impact.vector.supplyRisk) < 0
+                            ? "text-red-600"
+                            : "text-slate-500"
+                      }`}>
+                        {impact.vector.costShock !== 0 && `cost ${impact.vector.costShock > 0 ? "+" : ""}${impact.vector.costShock.toFixed(1)} `}
+                        {impact.vector.demandShock !== 0 && `demand ${impact.vector.demandShock > 0 ? "+" : ""}${impact.vector.demandShock.toFixed(1)} `}
+                        {impact.vector.supplyRisk !== 0 && `supply ${impact.vector.supplyRisk > 0 ? "+" : ""}${impact.vector.supplyRisk.toFixed(1)} `}
+                      </span>
+                      {impact.vector.reasoning}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Full Value-Chain Tree ────────────────────────────────────
+
+function ValueChainTree({ valueChain }: { valueChain: ValueChain }) {
+  const [expanded, setExpanded] = useState(false);
+  const childrenByParent = new Map<string, ValueChainNode[]>();
+  for (const node of valueChain.nodes) {
+    if (!node.parentId) continue;
+    const list = childrenByParent.get(node.parentId) ?? [];
+    list.push(node);
+    childrenByParent.set(node.parentId, list);
+  }
+  const roots = valueChain.nodes.filter((n) => !n.parentId).sort((a, b) => (b.revenueShare ?? 0) - (a.revenueShare ?? 0));
+
+  function renderNode(node: ValueChainNode, depth: number): React.ReactNode {
+    const children = childrenByParent.get(node.id) ?? [];
+    return (
+      <div key={node.id} className="space-y-1.5">
+        <div className="flex items-start gap-2" style={{ paddingLeft: depth * 14 }}>
+          <Badge variant="outline" className={`text-[10px] shrink-0 mt-0.5 ${nodeColor(node.type)}`}>
+            {node.type}
+          </Badge>
+          <div className="min-w-0">
+            <div className="text-xs font-medium">{node.name}</div>
+            <div className="text-[10px] text-muted-foreground leading-relaxed">
+              {[
+                node.revenueShare ? `rev ${(node.revenueShare * 100).toFixed(0)}%` : null,
+                node.costShare ? `cost ${(node.costShare * 100).toFixed(0)}%` : null,
+                node.importShare ? `import ${(node.importShare * 100).toFixed(0)}%` : null,
+                node.confidence ? `${node.confidence} conf` : null,
+                node.notes,
+              ].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+        </div>
+        {children.length > 0 && children.map((child) => renderNode(child, depth + 1))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-foreground hover:text-muted-foreground transition-colors"
+      >
+        <Sigma className="size-3.5" />
+        Full Value-Chain Decomposition
+        {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        <span className="text-[10px] text-muted-foreground font-normal">{valueChain.nodes.length} nodes</span>
+      </button>
+      {expanded && (
+        <div className="rounded-lg border bg-muted/20 p-3 space-y-2 max-h-80 overflow-y-auto">
+          {roots.map((root) => renderNode(root, 0))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────
 
 interface MacroImpactPanelProps {
@@ -403,6 +566,16 @@ export function MacroImpactPanel({ data, symbol, isLoading }: MacroImpactPanelPr
             {/* ── Mental Model Layers ── */}
             {latticework && (
               <MentalModelLayers layers={latticework.layers} />
+            )}
+
+            {/* ── Component-Level News Impact (Option A) ── */}
+            {data.valueChain && (
+              <ValueChainImpact valueChain={data.valueChain} componentImpacts={data.componentImpacts} />
+            )}
+
+            {/* ── Full Value-Chain Tree ── */}
+            {data.valueChain && (
+              <ValueChainTree valueChain={data.valueChain} />
             )}
 
             {/* ── Second-Order Implications ── */}

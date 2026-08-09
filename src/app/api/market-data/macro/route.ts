@@ -1,6 +1,20 @@
 import { NextRequest } from "next/server";
-import { getSector, SECTOR_LABELS, computeMacroImpact, type MacroImpactResult } from "@/lib/macro-impact";
-import { computeLatticeworkWithLLM, type LLMLatticeworkInput } from "@/lib/llm";
+import { getSector, SECTOR_LABELS, computeMacroImpact, type MacroImpactResult, type LatticeworkAnalysis } from "@/lib/macro-impact";
+import {
+  computeLatticeworkWithLLM,
+  generateValueChainWithLLM,
+  tagNewsToValueChainWithLLM,
+  type LLMLatticeworkInput,
+} from "@/lib/llm";
+import {
+  getCachedValueChain,
+  setCachedValueChain,
+  aggregateNodeImpacts,
+  mergeLatticeworkWithComponentAnalysis,
+  buildLatticeworkFromComponentAnalysis,
+  type NewsNodeImpact,
+  type ValueChain,
+} from "@/lib/value-chain";
 
 function parseRSSItems(xml: string): { title: string; pubDate: string }[] {
   const items: { title: string; pubDate: string }[] = [];
@@ -66,6 +80,20 @@ export async function GET(request: NextRequest) {
     }
 
     const sector = getSector(symbol);
+
+    // ─── Option A: stock-specific value chain + component-level news tagging ───
+    // The value chain is slow-moving, so cache it per symbol. News tagging is
+    // per request and runs in parallel with the main latticework LLM.
+    let valueChain: ValueChain | undefined = getCachedValueChain(symbol);
+    if (!valueChain) {
+      valueChain = await generateValueChainWithLLM({
+        symbol,
+        sector: SECTOR_LABELS[sector],
+        spotPrice,
+      }) ?? undefined;
+      if (valueChain) setCachedValueChain(symbol, valueChain);
+    }
+
     const latticeworkInput: LLMLatticeworkInput = {
       symbol,
       sector: SECTOR_LABELS[sector],
@@ -74,7 +102,29 @@ export async function GET(request: NextRequest) {
       eventName: "Live global, India, and company news synthesis",
       eventChannel: "Assess the combined direct, second-order, and market-expectation effects from the labelled live headlines; do not force them into predefined event categories.",
     };
-    const latticework = await computeLatticeworkWithLLM(latticeworkInput);
+
+    let latticework: LatticeworkAnalysis | null = null;
+    let componentImpacts: NewsNodeImpact[] | undefined;
+
+    if (valueChain) {
+      const [latticeworkResult, impactsResult] = await Promise.all([
+        computeLatticeworkWithLLM(latticeworkInput),
+        tagNewsToValueChainWithLLM({ symbol, valueChain, headlines }),
+      ]);
+      latticework = latticeworkResult;
+      componentImpacts = impactsResult ?? undefined;
+
+      if (componentImpacts && componentImpacts.length > 0) {
+        const aggregation = aggregateNodeImpacts(valueChain, componentImpacts);
+        if (latticework) {
+          latticework = mergeLatticeworkWithComponentAnalysis(latticework, aggregation, 0.5);
+        } else {
+          latticework = buildLatticeworkFromComponentAnalysis(aggregation);
+        }
+      }
+    } else {
+      latticework = await computeLatticeworkWithLLM(latticeworkInput);
+    }
 
     if (!latticework) {
       console.warn("computeLatticeworkWithLLM returned null for", symbol, "falling back to rule-based macro impact");
@@ -86,6 +136,8 @@ export async function GET(request: NextRequest) {
       if (fallback.events.length > 0) {
         return Response.json({
           ...fallback,
+          valueChain,
+          componentImpacts,
           llm: {
             summary: "Live-news synthesis is using the deterministic rule-based latticework because the DeepSeek API key is not configured or the LLM call failed.",
             inversionSignal: fallback.latticework?.inversionSignal ?? "",
@@ -98,6 +150,8 @@ export async function GET(request: NextRequest) {
         sectorImpact: { direction: "neutral", score: 0, reason: "News analysis is unavailable.", chain: "—" },
         macroScore: 0, macroSignal: "neutral",
         summary: "Live news was fetched, but dynamic mental-model analysis is unavailable.",
+        valueChain,
+        componentImpacts,
       } satisfies MacroImpactResult);
     }
 
@@ -107,7 +161,7 @@ export async function GET(request: NextRequest) {
       headline: `Live global, India, and ${symbol} news synthesis`,
       detected: new Date().toISOString(),
     };
-    const chain = "Global news → India market context → Company-specific developments → Price expectations";
+    const chain = "Global news → India market context → Company-specific developments → Value-chain nodes → P&L impact → Price expectations";
     const macroScore = latticework.netScore;
     const macroSignal = latticework.direction;
 
@@ -125,6 +179,8 @@ export async function GET(request: NextRequest) {
       macroScore,
       macroSignal,
       summary: latticework.narrativeSummary,
+      valueChain,
+      componentImpacts,
     } satisfies MacroImpactResult);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to fetch macro news";

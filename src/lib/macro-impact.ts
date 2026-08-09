@@ -1,6 +1,8 @@
 ﻿// ============================================================
 // Global Macro Impact Engine — Munger Latticework Edition
 // ============================================================
+import type { NewsNodeImpact, ValueChain } from "./value-chain";
+
 export type MacroEventType =
   | "oil_spike" | "oil_drop" | "rate_hike" | "rate_cut"
   | "geopolitical_risk" | "currency_inr_fall" | "currency_inr_rise"
@@ -65,6 +67,9 @@ export interface MacroImpactResult {
     inversionSignal: string;
     model: string;
   };
+  // Value-chain decomposition and per-node news impacts (Option A)
+  valueChain?: ValueChain;
+  componentImpacts?: NewsNodeImpact[];
 }
 
 export interface SectorImpact {

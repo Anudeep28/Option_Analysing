@@ -1,5 +1,6 @@
 // Optional LLM pass for richer macro analysis. Falls back to rule-based output when the API key is missing or the call fails.
 import type { LatticeworkAnalysis, MentalModelLayer } from "@/lib/macro-impact";
+import type { NewsNodeImpact, ValueChain, ValueChainNode } from "@/lib/value-chain";
 
 // ─── Full LLM-driven Latticework ─────────────────────────────
 
@@ -414,4 +415,266 @@ Respond ONLY in this JSON format:
     console.warn("DeepSeek macro enhancement error:", e);
     return null;
   }
+}
+
+// ─── Value-chain generation and news tagging (Option A) ─────
+
+export interface LLMValueChainInput {
+  symbol: string;
+  sector: string;
+  spotPrice?: number;
+}
+
+const VALUE_CHAIN_NODE_TYPES: ValueChainNode["type"][] = [
+  "segment", "product", "component", "supplier", "geography", "customer",
+];
+
+export async function generateValueChainWithLLM(
+  input: LLMValueChainInput,
+): Promise<ValueChain | null> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) return null;
+
+  const prompt = `You are a senior equity analyst building a detailed value-chain decomposition for ${input.symbol} (${input.sector} sector).
+
+Break the company into a tree of nodes using these types. Use stable, lowercase kebab-case ids. The goal is to capture enough granularity that a news headline about a specific input, part, supplier country, or customer type can be mapped to the correct node.
+
+Node types (exact strings only):
+- segment: major business segments (revenue share)
+- product: key products / platforms under each segment
+- component: critical raw materials, parts, sub-assemblies or inputs for each product — BE GRANULAR. For a drone maker this means airframe, motors/ESCs, battery packs, flight controller, cameras/gimbals, GPS/INS, datalink, propellers, ground station, etc.
+- supplier: actual supplier clusters, manufacturing companies, or supplier countries for each component (e.g., "China-based motor suppliers", "Israeli camera suppliers", "domestic battery pack assemblers").
+- geography: key end-markets / manufacturing geographies.
+- customer: key customer types / channels.
+
+Depth rules:
+1. Start with 1-2 segments.
+2. Under each segment list 2-4 key products.
+3. Under each product list 4-10 critical components/parts. Be specific: if it is a car, list battery cells, semiconductors, steel, aluminium, tyres, etc. If it is a drone, list carbon-fibre airframe, BLDC motors, Li-Po batteries, flight controller board, camera module, gimbal, GPS/INS, datalink, etc.
+4. Under each component, list 1-3 supplier/geography nodes identifying where it is sourced, which companies make it, and whether it is imported.
+5. Add 1-2 customer nodes and 1-2 geography nodes.
+
+Return a MINIMUM of 25 nodes and a MAXIMUM of 40 nodes. Do not be lazy: every product must have 4-8 component children, and every component with importShare > 0.2 should have a supplier child identifying the source country and major manufacturers. Nodes should be economically significant: revenue shares across segments should sum to ~1.0, cost shares across top components should not exceed ~0.7. Use 0.02 as a minimum for any node.
+
+For each node include:
+- id, name, type (one of the allowed strings exactly)
+- parentId: id of parent, if any
+- revenueShare: 0.0–1.0 (for segment/product/customer)
+- costShare: 0.0–1.0 (for component/supplier)
+- importShare: 0.0–1.0 — share of this input that is imported
+- marginSensitivity: 0.0–1.0 — how sensitive company margin is to this node
+- geographies: array of key country/region strings (e.g., ["China", "India", "USA"])
+- supplierRegions: array of key supplier country/region strings
+- customers: array of key customer types
+- tags: optional, from ["rural", "export", "imported", "china", "government", "make-in-india"]
+- notes: one short phrase with the major manufacturers, import dependency, or source countries
+- confidence: "high" | "medium" | "low"
+
+Return ONLY compact valid JSON (no markdown, no code fences, no explanatory text). The JSON must be parseable and complete:
+{"symbol":"${input.symbol}","generatedAt":"${new Date().toISOString()}","source":"llm-generated","nodes":[{"id":"switch-uav","name":"Switch UAV","type":"product","parentId":"defence-uavs","revenueShare":0.45,"costShare":0,"importShare":0,"marginSensitivity":0.15,"geographies":["India"],"tags":["government"],"notes":"Fixed-wing military UAV","confidence":"high"}]}`;
+
+  try {
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 10000,
+        thinking: { type: "disabled" },
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "unknown");
+      console.warn("DeepSeek value-chain generation failed:", res.status, body);
+      return null;
+    }
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content as string | undefined;
+    if (!content) {
+      console.warn("DeepSeek value-chain generation returned empty content");
+      return null;
+    }
+
+    const parsed = JSON.parse(content) as ValueChain;
+    if (!parsed.symbol || !Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
+      console.warn("DeepSeek value-chain generation returned invalid structure");
+      return null;
+    }
+
+    // Normalise and validate node types
+    parsed.nodes = parsed.nodes
+      .filter((n) => n.id && n.name && VALUE_CHAIN_NODE_TYPES.includes(n.type))
+      .map((n) => ({
+        ...n,
+        revenueShare: Math.max(0, Math.min(1, n.revenueShare ?? 0)),
+        costShare: Math.max(0, Math.min(1, n.costShare ?? 0)),
+        importShare: Math.max(0, Math.min(1, n.importShare ?? 0)),
+        marginSensitivity: Math.max(0, Math.min(1, n.marginSensitivity ?? 0)),
+      }));
+
+    if (parsed.nodes.length === 0) {
+      console.warn("DeepSeek value-chain generation returned no valid nodes");
+      return null;
+    }
+
+    return parsed;
+  } catch (e) {
+    console.warn("DeepSeek value-chain generation error:", e);
+    return null;
+  }
+}
+
+export interface LLMTagNewsInput {
+  symbol: string;
+  valueChain: ValueChain;
+  headlines: string[];
+}
+
+export async function tagNewsToValueChainWithLLM(
+  input: LLMTagNewsInput,
+): Promise<NewsNodeImpact[] | null> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) return null;
+
+  const nodeList = input.valueChain.nodes
+    .map((n, i) => `${i + 1}. id="${n.id}" | type="${n.type}" | name="${n.name}" | parent="${n.parentId ?? ""}" | revenueShare=${n.revenueShare ?? 0} | costShare=${n.costShare ?? 0} | importShare=${n.importShare ?? 0} | marginSensitivity=${n.marginSensitivity ?? 0} | tags=[${(n.tags ?? []).join(", ")}]`)
+    .join("\n");
+
+  const headlineList = input.headlines.map((h, i) => `${i}. ${h}`).join("\n");
+
+  const prompt = `You are a senior equity analyst mapping live news headlines to specific value-chain nodes for ${input.symbol}.
+
+VALUE-CHAIN NODES:
+${nodeList}
+
+LIVE HEADLINES (index 0-based):
+${headlineList}
+
+For each headline that clearly affects one or more of the above nodes, return an entry with:
+- headlineIndex: the 0-based index from the headline list
+- nodeId: the exact id of the affected value-chain node
+- nodeName: the node name
+- costShock, demandShock, supplyRisk, competitiveEffect, policyEffect, reversion, inversion: each a number from -1.0 to +1.0
+  * costShock: does this raise (+) or lower (-) the node's input cost?
+  * demandShock: does this raise (+) or lower (-) end-demand for the node?
+  * supplyRisk: disruption / availability risk (+ = worse, - = better)
+  * competitiveEffect: does this advantage (+) or disadvantage (-) this node vs peers?
+  * policyEffect: does this help (+) or hurt (-) due to government / RBI action?
+  * reversion: +1 if the shock is likely temporary / mean-reverting, -1 if structural / persistent
+  * inversion: +1 if the market is under-pricing the good side, -1 if over-pricing the bad side
+- reasoning: one precise sentence explaining the link
+- confidence: "high" | "medium" | "low"
+
+Only include headlines that clearly map to a node. If a headline is generic or irrelevant, skip it. Do not force a mapping.
+
+Return ONLY valid JSON in this exact shape:
+{
+  "impacts": [
+    {
+      "headlineIndex": 0,
+      "nodeId": "ev-battery-cells",
+      "nodeName": "EV battery cells",
+      "costShock": 0.6,
+      "demandShock": 0,
+      "supplyRisk": 0.4,
+      "competitiveEffect": 0,
+      "policyEffect": 0,
+      "reversion": -0.3,
+      "inversion": 0.2,
+      "reasoning": "Lithium export restrictions raise battery cell costs for the EV platform.",
+      "confidence": "medium"
+    }
+  ]
+}`;
+
+  try {
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+        max_tokens: 4000,
+        thinking: { type: "disabled" },
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "unknown");
+      console.warn("DeepSeek value-chain news tagging failed:", res.status, body);
+      return null;
+    }
+
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content as string | undefined;
+    if (!content) {
+      console.warn("DeepSeek value-chain news tagging returned empty content");
+      return null;
+    }
+
+    const parsed = JSON.parse(content) as { impacts: Array<Partial<NewsNodeImpact> & { headlineIndex: number; nodeId: string; nodeName?: string; costShock?: number; demandShock?: number; supplyRisk?: number; competitiveEffect?: number; policyEffect?: number; reversion?: number; inversion?: number; reasoning?: string; confidence?: string }> };
+    if (!Array.isArray(parsed.impacts)) {
+      console.warn("DeepSeek value-chain news tagging returned invalid structure");
+      return null;
+    }
+
+    const nodeIds = new Set(input.valueChain.nodes.map((n) => n.id));
+    const validHeadlines = input.headlines;
+
+    const rawImpacts = parsed.impacts
+      .filter((i) =>
+        nodeIds.has(i.nodeId) &&
+        i.headlineIndex >= 0 &&
+        i.headlineIndex < validHeadlines.length,
+      )
+      .map((i) => ({
+        headline: validHeadlines[i.headlineIndex],
+        headlineIndex: i.headlineIndex,
+        nodeId: i.nodeId,
+        nodeName: i.nodeName,
+        vector: {
+          costShock: clamp(i.costShock ?? 0, -1, 1),
+          demandShock: clamp(i.demandShock ?? 0, -1, 1),
+          supplyRisk: clamp(i.supplyRisk ?? 0, -1, 1),
+          competitiveEffect: clamp(i.competitiveEffect ?? 0, -1, 1),
+          policyEffect: clamp(i.policyEffect ?? 0, -1, 1),
+          reversion: clamp(i.reversion ?? 0, -1, 1),
+          inversion: clamp(i.inversion ?? 0, -1, 1),
+          reasoning: i.reasoning ?? "",
+          confidence: (i.confidence as NewsNodeImpact["vector"]["confidence"]) ?? "medium",
+        },
+      }));
+
+    // Drop mappings that have no directional signal and low confidence
+    const impacts: NewsNodeImpact[] = rawImpacts.filter((i) => {
+      const v = i.vector;
+      const magnitude =
+        Math.abs(v.costShock) + Math.abs(v.demandShock) + Math.abs(v.supplyRisk) +
+        Math.abs(v.competitiveEffect) + Math.abs(v.policyEffect) +
+        Math.abs(v.reversion) + Math.abs(v.inversion);
+      return magnitude > 0.05 || v.confidence === "high";
+    });
+
+    return impacts;
+  } catch (e) {
+    console.warn("DeepSeek value-chain news tagging error:", e);
+    return null;
+  }
+}
+
+function clamp(x: number, lo = -1, hi = 1): number {
+  return Math.max(lo, Math.min(hi, x));
 }
