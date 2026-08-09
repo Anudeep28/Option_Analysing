@@ -23,6 +23,7 @@ import { GARCHVolForecast } from "./garch-vol-forecast";
 import { StockOutlook } from "./stock-outlook";
 import { Superforecaster } from "./superforecaster";
 import { StockMCForecast } from "./stock-mc-forecast";
+import { EpsilonMachineForecast } from "./epsilon-machine-forecast";
 import type { TechnicalIndicators } from "@/lib/technicals";
 import type { MacroImpactResult } from "@/lib/macro-impact";
 
@@ -295,6 +296,15 @@ export function ResultsPanel({
               currency={currency}
               symbol={symbol}
               macroScore={macroScore}
+            />
+          )}
+          {historicalCloses && historicalCloses.length >= 80 && spotPrice > 0 && (
+            <EpsilonMachineForecast
+              closes={historicalCloses}
+              spotPrice={spotPrice}
+              horizonDays={Math.round(timeToExpiry * 365)}
+              currency={currency}
+              symbol={symbol}
             />
           )}
           {historicalCloses && historicalCloses.length >= 30 && spotPrice > 0 && (

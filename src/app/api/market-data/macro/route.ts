@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getSector, SECTOR_LABELS, type MacroImpactResult } from "@/lib/macro-impact";
+import { getSector, SECTOR_LABELS, computeMacroImpact, type MacroImpactResult } from "@/lib/macro-impact";
 import { computeLatticeworkWithLLM, type LLMLatticeworkInput } from "@/lib/llm";
 
 function parseRSSItems(xml: string): { title: string; pubDate: string }[] {
@@ -77,7 +77,22 @@ export async function GET(request: NextRequest) {
     const latticework = await computeLatticeworkWithLLM(latticeworkInput);
 
     if (!latticework) {
-      console.warn("computeLatticeworkWithLLM returned null for", symbol);
+      console.warn("computeLatticeworkWithLLM returned null for", symbol, "falling back to rule-based macro impact");
+      const rawHeadlines = [...globalItems, ...indiaItems, ...companyItems].map((item) => ({
+        title: item.title,
+        pubDate: item.pubDate,
+      }));
+      const fallback = computeMacroImpact(rawHeadlines, symbol);
+      if (fallback.events.length > 0) {
+        return Response.json({
+          ...fallback,
+          llm: {
+            summary: "Live-news synthesis is using the deterministic rule-based latticework because the DeepSeek API key is not configured or the LLM call failed.",
+            inversionSignal: fallback.latticework?.inversionSignal ?? "",
+            model: "rule-based fallback",
+          },
+        } satisfies MacroImpactResult);
+      }
       return Response.json({
         events: [], primaryEvent: null, topEvents: [], latticework: null,
         sectorImpact: { direction: "neutral", score: 0, reason: "News analysis is unavailable.", chain: "—" },

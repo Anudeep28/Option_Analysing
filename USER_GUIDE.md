@@ -22,6 +22,7 @@ This application is a **professional-grade option analysis tool** for Indian (NS
 - **Historical data**: 1 year of daily closes from Yahoo Finance, auto-fitted with GARCH(1,1) for accurate current volatility
 - **Greeks**: First-order (Δ, Γ, Θ, ν, ρ) and higher-order (Vanna, Volga, Charm, Speed) — the same set used by investment banks
 - **Stock Outlook** *(new)*: Consolidated directional signal (STRONG BUY → STRONG SELL), GARCH-based probabilistic price cone, and price target probability — all combined into one panel
+- **Epsilon-Machine Forecast** *(new)*: A non-parametric, computational-mechanics-based stock forecast (CSSR algorithm) that reconstructs the minimal causal states of the price history directly from data, with no assumed distribution
 - **Global Macro Impact** *(new)*: Rule-based Munger latticework analysis that scores a macro event through six mental models for the specific stock/sector you selected
 - **Portfolio analysis**: Enter multiple positions from your demat account and see combined exposure, net Greeks, and scenario P&L
 - **Trade decision engine**: Probability of profit, expected value, risk-reward verdict
@@ -244,7 +245,50 @@ The drift is biased by the technical score so a strong bullish setup increases u
 
 ---
 
-### 3. Demat Position Tracker
+### 3. Epsilon-Machine Forecast *(new — Stock View tab, needs ~80+ sessions of history)*
+
+A fundamentally different kind of stock prediction from everything else in the app: instead of assuming a
+distribution (log-normal, GARCH, etc.) and fitting parameters to it, this panel uses **computational
+mechanics** to let the price history itself reveal its own minimal predictive model — an **ε-machine**.
+
+**How it works, in plain terms:**
+1. Daily returns are converted into a small alphabet of symbols (e.g. 4 bins from "strong down" to "strong up"),
+   sized using the standardized/CLT-normalized return distribution.
+2. The algorithm (CSSR — Causal-State Splitting Reconstruction) looks at every recent sequence of symbols
+   ("history") and groups histories that lead to statistically indistinguishable next-move odds into the same
+   **causal state**. Histories that behave differently get split into their own state.
+3. This produces a small state machine: your stock's recent pattern of moves places it in one particular causal
+   state right now, and that state has its own odds for tomorrow's move.
+4. The panel then simulates thousands of paths forward using the machine's own transition odds (not a bell
+   curve) to build a price cone, just like the Monte Carlo panel.
+
+**What you'll see:**
+
+| Field | Meaning |
+|---|---|
+| **Causal states found** | How many distinct "regimes" the algorithm distinguished in the price history. More states = more structure the process is exhibiting. |
+| **Statistical complexity (Cμ)** | Bits of memory the process appears to retain about its own past. Cμ = 0 means the returns look like pure noise (no state carries extra information); higher Cμ means the recent pattern of moves genuinely changes the odds of what comes next. |
+| **Entropy rate (hμ)** | How random the next move still is, in bits/step, shown against the maximum possible (log2 of the alphabet size). hμ close to the max = close to unpredictable even knowing the current state. |
+| **Efficiency note** | Plain-English read of Cμ/hμ together — tells you whether the machine found real structure or whether the stock is behaving close to a random walk (a rough, informal nod to the efficient-market hypothesis) |
+| **Current causal state & next-day odds** | The state your stock is in right now, and the probability bar for each return bin on the next trading day |
+| **P(up)** | Probability the simulated terminal price is above today's price at the chosen horizon |
+| **Path simulation chart** | Median + 50%/90% bands from paths simulated using the ε-machine's own transitions |
+
+> **How to use it**: Think of this as an independent, non-parametric check on the other forecasts (Monte
+> Carlo, Superforecaster, Stock Outlook). If Cμ is near zero and the efficiency note says the process looks
+> like a random walk, treat directional signals from the *other* panels with more skepticism for this stock —
+> there may be less genuine memory/edge to exploit than those model-based tools imply. If the machine finds
+> several causal states with non-trivial Cμ, that's evidence of real short-memory structure you can cross-check
+> against the technical/momentum signals elsewhere in the app.
+
+> **Caveat**: This method needs enough history to reliably estimate causal states (the panel requires 80+
+> daily closes, but more is better) and works best as a *complement* to the other forecasts, not a
+> stand-alone trading signal — it says nothing about news, earnings, or macro events, only about the
+> statistical memory in past price moves.
+
+---
+
+### 4. Demat Position Tracker
 Enter your actual entry price to see live P&L:
 - Current P&L (per unit and total in ₹)
 - Breakeven spot price at expiry
@@ -252,7 +296,7 @@ Enter your actual entry price to see live P&L:
 
 ---
 
-### 4. Greeks
+### 5. Greeks
 | Greek | Meaning | Practical Use |
 |---|---|---|
 | **Δ Delta** | ₹ change in option per ₹1 spot move | A 0.5 delta call gains ₹0.50 if NIFTY rises ₹1 |
@@ -267,7 +311,7 @@ Enter your actual entry price to see live P&L:
 
 ---
 
-### 5. Trade Analysis
+### 6. Trade Analysis
 Plain-English interpretation of your Greeks:
 - Is IV high or low relative to historical?
 - Is theta decay dangerous for your holding period?
@@ -275,20 +319,20 @@ Plain-English interpretation of your Greeks:
 
 ---
 
-### 6. Profit Probability
+### 7. Profit Probability
 - Probability of profit at expiry (log-normal distribution)
 - Enter the **Market LTP** (from your broker) to get breakeven-adjusted probability
 - Payoff diagram showing P&L at various spot prices at expiry
 
 ---
 
-### 7. AI Report
+### 8. AI Report
 Click **"Generate AI Report"** for a written analysis combining sentiment, technicals, pricing verdict, and risk warnings.
 > Requires a DeepSeek API key set in `.env.local` as `DEEPSEEK_API_KEY=sk-...` — see [DeepSeek API Setup](#deepseek-api-setup).
 
 ---
 
-### 8. IV Analysis
+### 9. IV Analysis
 Compares this option's implied volatility vs the 1-year historical realised volatility:
 - **IV > HV**: Option is expensive — sellers favoured
 - **IV < HV**: Option may be cheap — buyers favoured
@@ -296,7 +340,7 @@ Compares this option's implied volatility vs the 1-year historical realised vola
 
 ---
 
-### 9. Option Chain Intelligence *(Indian symbols only)*
+### 10. Option Chain Intelligence *(Indian symbols only)*
 - Open Interest by strike — where large positions are concentrated
 - Put-Call Ratio (PCR)
 - Max Pain level (strike where total option buyer losses are maximised)
@@ -304,7 +348,7 @@ Compares this option's implied volatility vs the 1-year historical realised vola
 
 ---
 
-### 10. Technical Analysis
+### 11. Technical Analysis
 Computed from 1 year of daily historical closes:
 - RSI-14: oversold (<30) / neutral / overbought (>70)
 - MACD: bullish or bearish momentum
@@ -314,7 +358,7 @@ Computed from 1 year of daily historical closes:
 
 ---
 
-### 11. Behavioral Signals
+### 12. Behavioral Signals
 - 52-week position (near high vs low)
 - Volume surge detection
 - Fear & Greed composite score
@@ -322,7 +366,7 @@ Computed from 1 year of daily historical closes:
 
 ---
 
-### 12. GARCH(1,1) Volatility Forecast
+### 13. GARCH(1,1) Volatility Forecast
 - **Current GARCH Vol**: Best estimate of today's realised volatility (used in pricing and Stock Outlook)
 - **Long-Run Vol**: Mean-reversion target for volatility
 - **Persistence (α+β)**: >0.95 = shocks last a long time (high-vol regime)
@@ -331,7 +375,7 @@ Computed from 1 year of daily historical closes:
 
 ---
 
-### 13. Scenario P&L Ladder
+### 14. Scenario P&L Ladder
 A heatmap matrix of your option's P&L at:
 - Spot moves: −10% to +10% (columns)
 - IV changes: −20% to +20% (rows)
@@ -340,7 +384,7 @@ Green = profit, Red = loss. Use this to stress-test your option against adverse 
 
 ---
 
-### 14. Global Macro Impact *(new)*
+### 15. Global Macro Impact *(new)*
 
 This panel appears after you click **Fetch Live Data**. It scans recent global macro headlines, ranks the **top 3 most impactful global drivers**, and analyses each through a **Munger latticework** of mental models, specifically for the stock or index you selected.
 
@@ -870,3 +914,8 @@ DeepSeek pricing is low. A typical session that triggers all three features cost
 | **Macro Score** | A composite score (-100 to +100) derived from the Munger latticework; indicates bullish/bearish/mixed bias for the selected stock |
 | **Inversion Signal** | The contrarian read inside the macro panel — what the opposite case looks like and whether the market may have overshot |
 | **LLM-Enhanced Summary** | An optional narrative generated by the DeepSeek API from the rule-based macro result; enabled by setting `DEEPSEEK_API_KEY` |
+| **Epsilon-Machine (ε-machine)** | A minimal predictive model reconstructed directly from a time series, from the field of computational mechanics — no assumed distribution, just the causal structure the data itself reveals |
+| **Causal State** | A group of past price-move histories that all lead to statistically indistinguishable odds for what happens next; the ε-machine's building block |
+| **CSSR** | Causal-State Splitting Reconstruction — the algorithm used to discover causal states from historical returns |
+| **Statistical Complexity (Cμ)** | Bits of memory a process retains about its own past, as estimated by the ε-machine; 0 means the process looks like pure noise |
+| **Entropy Rate (hμ)** | The remaining unpredictability of the next move (in bits/step) even after knowing the current causal state |
